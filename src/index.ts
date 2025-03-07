@@ -11,7 +11,7 @@ class TrafficanteInterceptor {
   onRequestStart (controller, context) {
     console.log(' >>> onRequestStart')
 
-    // TODO identify request by path/url/headers
+    // TODO identify request by path/ (headers?)
     // TODO skip requests that are not matching
     // TODO matching by method=GET, no cache headers, no auth headers
     // TODO implement bloom filter
