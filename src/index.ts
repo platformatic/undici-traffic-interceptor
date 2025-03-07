@@ -6,8 +6,6 @@ class TrafficanteInterceptor {
     this.dispatch = dispatch
     this.request = request
     this.handler = handler
-
-    // TODO if (util.isStream(this.request.body)) {
   }
 
   onRequestStart (controller, context) {
@@ -63,8 +61,6 @@ class TrafficanteInterceptor {
 export function createTrafficanteInterceptor (options: any) {
   return function trafficanteInterceptor (dispatch: any) {
     console.log('createTrafficanteInterceptor', options)
-
-    // https://blog.platformatic.dev/http-fundamentals-understanding-undici-and-its-working-mechanism#heading-handlers
 
     return function InterceptedDispatch (dispatchOptions: any, handler: any) {
       return dispatch(dispatchOptions, new TrafficanteInterceptor(dispatch, options, handler))
