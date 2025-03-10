@@ -14,10 +14,9 @@ describe('TrafficanteInterceptor', async () => {
     const trafficante = await createServer({ t })
     const agent = new Agent().compose(createTrafficanteInterceptor(options))
 
-    const response = await request(app.host, {
+    const response = await request(`${app.host}/`, {
       dispatcher: agent,
-      path: '/',
-      method: 'GET'
+      method: 'GET',
     })
 
     console.log(' *** response ***')

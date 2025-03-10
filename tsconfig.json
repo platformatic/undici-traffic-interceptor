@@ -1,4 +1,5 @@
 {
+  "exclude": ["node_modules", "dist", "test"],
   "compilerOptions": {
     "module": "commonjs",
     "esModuleInterop": true,
@@ -9,7 +10,8 @@
     "noEmitOnError": true,
     "incremental": true,
     "strict": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "erasableSyntaxOnly": true
   },
   "watchOptions": {
     "watchFile": "fixedPollingInterval",

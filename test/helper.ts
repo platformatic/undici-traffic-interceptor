@@ -1,6 +1,8 @@
 import fastify from 'fastify'
 
-export async function createServer({ t }: { t: any }) {
+import { TestContext } from 'node:test'
+
+export async function createServer({ t }: { t: TestContext }) {
     const server = fastify()
 
     server.get('/', (req, res) => {
@@ -15,6 +17,6 @@ export async function createServer({ t }: { t: any }) {
 
     return {
         server,
-        host: `http://localhost:${server.server.address().port}`
+        host: `http://localhost:${(server.server.address() as import('net').AddressInfo).port}`
     }
 }
