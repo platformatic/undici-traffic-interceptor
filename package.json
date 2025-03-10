@@ -17,9 +17,10 @@
     "test": "node --test --experimental-strip-types test/*.test.ts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "build": "npm run clean && tsc",
+    "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist;"
+    "clean": "rm -rf dist;",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "repository": {
     "type": "git",

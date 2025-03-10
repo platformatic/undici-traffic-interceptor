@@ -1,5 +1,5 @@
 import { test, describe } from 'node:test'
-import assert from 'node:assert/strict'
+// import assert from 'node:assert/strict'
 import { request, Agent } from 'undici'
 
 import { createTrafficanteInterceptor } from '../src/index.ts'

@@ -1,6 +1,6 @@
 import fastify from 'fastify'
 
-import { TestContext } from 'node:test'
+import type { TestContext } from 'node:test'
 
 export async function createServer({ t }: { t: TestContext }) {
     const server = fastify()
