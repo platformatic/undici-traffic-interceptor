@@ -1,4 +1,4 @@
-import { Dispatcher, request } from 'undici'
+import { Client, Dispatcher, request } from 'undici'
 import type { IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:http'
 import { Readable, PassThrough, type Duplex } from 'node:stream'
 import { URL } from 'node:url'
@@ -15,6 +15,8 @@ const defaultTrafficanteOptions: TrafficanteOptions = {
   maxResponseSize: 5 * 1024 * 1024, // 5MB
   trafficante: {
     url: '',
+    pathSendBody: '/ingest-body',
+    pathSendMeta: '/ingest-meta',
   },
 }
 
@@ -51,7 +53,8 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   private handler: Dispatcher.DispatchHandler
 
   private bloomFilter!: BloomFilter
-
+  private client!: Client
+  
   private context!: InterceptorContext
 
   private send!: Promise<Dispatcher.ResponseData<null>>
@@ -66,6 +69,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     dispatchOptions: Partial<Dispatcher.DispatchOptions>,
     options: TrafficanteOptions,
     bloomFilter: BloomFilter,
+    client: Client,
     dispatch: Dispatcher['dispatch'],
     handler: Dispatcher.DispatchHandler
   ) {
@@ -87,7 +91,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.handler = handler
 
     this.bloomFilter = bloomFilter
-    // TODO create unidic.Client to trafficante
+    this.client = client
 
     this.context = {
       dispatchOptions,
@@ -116,7 +120,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     // console.log(' >>> onRequestStart', this.context.dispatchOptions)
 
     if (!this.interceptRequest(this.context)) {
-      console.log('    ! onRequestStart skip')
+      console.log('    ! skip by request')
       this.context.skip = true
       return this.handler.onRequestStart?.(controller, this.context)
     }
@@ -148,14 +152,15 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     }
 
     if (this.context.skip || !this.interceptResponse(this.context)) {
-      console.log('    ! onResponseStart skip')
+      console.log('    ! skip by response')
       this.context.skip = true
       return this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage)
     }
 
     // Send data to trafficante
     const responseBodyPassthrough = new PassThrough()
-    this.send = request(this.context.options.trafficante.url, {
+    this.send = this.client.request({
+      path: this.context.options.trafficante.pathSendBody,
       method: 'POST',
       headers: {
         'content-type': this.context.response.headers['content-type'] || 'application/octet-stream',
@@ -174,7 +179,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   async onResponseData(controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
-    console.log(' >>> onResponseData')
+    // console.log(' >>> onResponseData')
     if (this.context.skip) {
       return this.handler.onResponseData?.(controller, chunk)
     }
@@ -194,22 +199,23 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     }
 
     this.writer.end()
+    await this.send
 
     this.context.response.hash = this.context.hasher.digest()
     this.context.response.hashString = this.context.response.hash.toString()
-    request(this.context.options.trafficante.url, {
-      method: 'POST',
+
+    await this.client.request({
+      path: this.context.options.trafficante.pathSendMeta,
+      method: 'POST', // GET?
       headers: {
         'content-type': 'application/json',
-        'x-trafficante-data': JSON.stringify(this.context.data)
+        // ? 'x-trafficante-data': JSON.stringify(this.context.data)
       },
       body: JSON.stringify({
         requestHash: this.context.request.hashString ?? '',
         responseHash: this.context.response.hashString ?? ''
       })
     })    
-
-    await this.send
 
     this.handler.onResponseEnd?.(controller, trailers)
   }
@@ -239,13 +245,14 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
 export function createTrafficanteInterceptor(options: TrafficanteOptions = defaultTrafficanteOptions): Dispatcher.DispatchInterceptor {
   const bloomFilter = new BloomFilter(options.bloomFilter.size, options.bloomFilter.errorRate)
+  const client = new Client(options.trafficante.url)
 
   return function trafficanteInterceptor(dispatch: Dispatcher['dispatch']): Dispatcher['dispatch'] {
     return function InterceptedDispatch(
       dispatchOptions: Dispatcher.DispatchOptions,
       handler: Dispatcher.DispatchHandler
     ): boolean {
-      return dispatch(dispatchOptions, new TrafficanteInterceptor(dispatchOptions, options, bloomFilter, dispatch, handler))
+      return dispatch(dispatchOptions, new TrafficanteInterceptor(dispatchOptions, options, bloomFilter, client, dispatch, handler))
     }
   }
 }

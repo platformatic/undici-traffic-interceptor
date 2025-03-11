@@ -12,16 +12,25 @@ const defaultOptions: TrafficanteOptions = {
     errorRate: 0.01,
   },
   maxResponseSize: 10 * 1024,
+  trafficante: {
+    url: '',
+    pathSendBody: '/ingest-body',
+    pathSendMeta: '/ingest-meta'
+  }
 }
 
 describe('TrafficanteInterceptor', async () => {
 
   test('should intercept request/response and extract data', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t, path: '/ingest' })
-    const agent = new Agent().compose(createTrafficanteInterceptor({ ...structuredClone(defaultOptions), trafficante: {
-      url: trafficante.url
-    } }))
+    const trafficante = await createTrafficante({ t })
+    const agent = new Agent().compose(createTrafficanteInterceptor({
+      ...structuredClone(defaultOptions),
+      trafficante: {
+        ...defaultOptions.trafficante,
+        url: trafficante.url,
+      }
+    }))
 
     const response = await request(`${app.host}/?var1=a&var2=b&A=B&`, {
       dispatcher: agent,

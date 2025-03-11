@@ -23,6 +23,8 @@ export const SKIPPING_COOKIE_SESSION_IDS = ['sessionId',
 export interface TrafficanteOptions {
   trafficante: {
     url: string
+    pathSendBody: string
+    pathSendMeta: string
   }
   bloomFilter: {
     size: number

@@ -21,11 +21,19 @@ export async function createApp({ t }: { t: TestContext }) {
     }
 }
 
-export async function createTrafficante({ t, path }: { t: TestContext, path: string }) {
+export async function createTrafficante({ t, pathSendBody = '/ingest-body', pathSendMeta = '/ingest-meta' }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string }) {
     const server = fastify({ logger: true })
 
-    server.post(path, (req, res) => {
+    server.post(pathSendBody, (req, res) => {
         console.log(' *** ingest ***')
+        console.log('req.body', req.body)
+        console.log('req.headers', req.headers)
+        console.log(' *** ')
+        res.send({ ok: true })
+    })
+
+    server.post(pathSendMeta, (req, res) => {
+        console.log(' *** ingest meta ***')
         console.log('req.body', req.body)
         console.log('req.headers', req.headers)
         console.log(' *** ')
@@ -42,6 +50,6 @@ export async function createTrafficante({ t, path }: { t: TestContext, path: str
     return {
         server,
         host,
-        url: `${host}${path}`
+        url: host
     }
 }
