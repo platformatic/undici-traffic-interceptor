@@ -21,6 +21,9 @@ export const SKIPPING_COOKIE_SESSION_IDS = ['sessionId',
 ]
 
 export interface TrafficanteOptions {
+  trafficante: {
+    url: string
+  }
   bloomFilter: {
     size: number
     errorRate: number
@@ -38,7 +41,7 @@ export interface TrafficanteOptions {
   interceptResponse?: (context: InterceptorContext) => boolean
 }
 
-export function interceptRequest(context: InterceptorContext): boolean {
+export function interceptRequest (context: InterceptorContext): boolean {
   if (!INTERCEPT_REQUEST_METHODS.includes(context.request.method as Dispatcher.HttpMethod)) {
     return false
   }
@@ -62,22 +65,29 @@ export function interceptRequest(context: InterceptorContext): boolean {
   return true
 }
 
-export function extractDataFromRequest(context: InterceptorContext): Record<string, string> {
+export function extractDataFromRequest (context: InterceptorContext): Record<string, string> {
   // TODO
+  // const data: Record<string, string> = {}
+  // const pathSegments = context.request.url?.pathname.split('/').filter(Boolean) || []
+  // if (pathSegments.length >= 1) data.applicationId = pathSegments[0]
+  // if (pathSegments.length >= 2) data.taxonomyId = pathSegments[1]
+  // if (pathSegments.length >= 3) data.serviceId = pathSegments[2]
+
   return {
     applicationId: 'TODO',
     taxonomyId: 'TODO',
     serviceId: 'TODO',
     telemetryId: 'TODO',
+    requestHash: context.request.hashString ?? ''
   }
 }
 
-export function hashRequest(context: InterceptorContext): bigint {
+export function hashRequest (context: InterceptorContext): bigint {
   context.hasher.update(`${context.request.url?.pathname}?${context.request.query}`)
   return context.hasher.digest()
 }
 
-export function interceptResponse(context: InterceptorContext): boolean {
+export function interceptResponse (context: InterceptorContext): boolean {
   if (!INTERCEPT_RESPONSE_STATUS_CODES(context.response.statusCode)) {
     return false
   }
