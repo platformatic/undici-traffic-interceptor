@@ -28,6 +28,9 @@
   },
   "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
   "dependencies": {
+    "@node-rs/xxhash": "^1.7.6",
+    "cookie": "^1.0.2",
+    "safe-stable-stringify": "^2.5.0",
     "undici": "^7.4.0"
   },
   "devDependencies": {

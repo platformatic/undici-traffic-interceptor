@@ -2,21 +2,33 @@ import { test, describe } from 'node:test'
 // import assert from 'node:assert/strict'
 import { request, Agent } from 'undici'
 
-import { createTrafficanteInterceptor } from '../src/index.ts'
+import { createTrafficanteInterceptor, type TrafficanteOptions } from '../src/index.ts'
 
-import { createServer } from './helper.ts'
+import { createApp, createTrafficante } from './helper.ts'
+
+const defaultOptions: TrafficanteOptions = {
+  bloomFilter: {
+    size: 1000,
+    errorRate: 0.01,
+  },
+  maxResponseSize: 10 * 1024,
+}
 
 describe('TrafficanteInterceptor', async () => {
 
   test('should intercept request/response and extract data', async (t) => {
-    const options = {}
-    const app = await createServer({ t })
-    const trafficante = await createServer({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor(options))
+    const app = await createApp({ t })
+    const trafficante = await createTrafficante({ t })
+    const agent = new Agent().compose(createTrafficanteInterceptor(structuredClone(defaultOptions)))
 
-    const response = await request(`${app.host}/`, {
+    const response = await request(`${app.host}/?var1=a&var2=b&A=B&`, {
       dispatcher: agent,
       method: 'GET',
+      headers: {
+        // 'cache-control': 'no-cache',
+        // 'authorization': 'Bearer 1234567890',
+        // 'cookie': 'sessionId=1234567890'
+      }
     })
 
     console.log(' *** response ***')

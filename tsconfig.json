@@ -17,7 +17,7 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,
-    "erasableSyntaxOnly": true // TS 5.8
+    "erasableSyntaxOnly": true
   },
   "watchOptions": {
     "watchFile": "fixedPollingInterval",
