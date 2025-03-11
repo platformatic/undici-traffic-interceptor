@@ -44,20 +44,26 @@ describe('TrafficanteInterceptor', async () => {
       }
     })
 
-    // await response.body.text()
+    // TODO
+    // assert: response from app is correct
+    // data received by trafficante is correct
 
-    console.log(' *** response ***')
-    console.log('statusCode', response.statusCode);
-    console.log('headers', response.headers);
-    console.log('body', await response.body.text());
-    console.log(' *** ')
+    // console.log(' *** response ***')
+    // console.log('statusCode', response.statusCode);
+    // console.log('headers', response.headers);
+    // console.log('body', await response.body.text());
+    // console.log(' *** ')
   })
 
-  // test('should send to trafficante endpoint matching request', async (t) => {
+  // match/skip request
+  // - by bloom filter
+  // - by headers
+  // - by cookies
+  // match/skip response
+  // - by response code
+  // - by headers
+  // - by cookies
+  // - by response size
 
-  // })
-
-  // test('should not send to trafficante endpoint non matching request', async (t) => {
-
-  // })
+  // extract data from request, by url/path
 })

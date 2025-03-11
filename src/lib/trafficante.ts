@@ -17,7 +17,8 @@ export const SKIPPING_COOKIE_SESSION_IDS = ['sessionId',
   'auth_token',
   'access_token',
   'csrf_token',
-  'XSRF-TOKEN'
+  'XSRF-TOKEN',
+  'X-CSRF-TOKEN'
 ]
 
 export interface TrafficanteOptions {
