@@ -4,7 +4,7 @@ import { request, Agent } from 'undici'
 
 import { createTrafficanteInterceptor, type TrafficanteOptions } from '../src/index.ts'
 
-import { createApp, createTrafficante } from './helper.ts'
+import { createApp, createTrafficante, waitForLogMessage } from './helper.ts'
 
 const defaultOptions: TrafficanteOptions = {
   labels: {
@@ -29,7 +29,6 @@ describe('TrafficanteInterceptor', async () => {
     const app = await createApp({ t })
     const trafficante = await createTrafficante({ t })
     const agent = new Agent().compose(createTrafficanteInterceptor({
-
       ...structuredClone(defaultOptions),
       trafficante: {
         ...defaultOptions.trafficante,
@@ -51,15 +50,10 @@ describe('TrafficanteInterceptor', async () => {
     assert.equal(response.headers['x-request-headers-user-agent'], 'test-user-agent')
     assert.equal(response.headers['x-request-headers-content-type'], 'application/json')
 
-    // TODO
-    // assert: response from app is correct
-    // data received by trafficante is correct
-
-    // console.log(' *** response ***')
-    // console.log('statusCode', response.statusCode);
-    // console.log('headers', response.headers);
-    // console.log('body', await response.body.text());
-    // console.log(' *** ')
+    await Promise.all([
+      waitForLogMessage(trafficante.loggerSpy, 'received body'),
+      waitForLogMessage(trafficante.loggerSpy, 'received meta')
+    ])
   })
 
   // on server error

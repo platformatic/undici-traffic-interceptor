@@ -173,6 +173,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       },
       body: responseBodyPassthrough
     })
+    // TODO trafficante not return 200
     this.writer = responseBodyPassthrough
 
     this.context.hasher.reset()
@@ -204,7 +205,6 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     await this.send
 
     this.context.response.hash = this.context.hasher.digest()
-    // this.context.response.hashString = this.context.response.hash.toString()
 
     await this.client.request({
       path: this.context.options.trafficante.pathSendMeta,
@@ -215,6 +215,10 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
         'x-response-hash': this.context.response.hash.toString()
       }
     })
+    // TODO trafficante not return 200
+
+
+    console.log(' >>> onResponseEnd DONE')
 
     this.handler.onResponseEnd?.(controller, trailers)
   }
@@ -225,7 +229,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   async onResponseError(controller: Dispatcher.DispatchController, error: Error): Promise<void> {
-    console.log(' >>> onResponseError')
+    console.log(' >>> onResponseError', error)
 
     if (this.context.skip) {
       return this.handler.onResponseError?.(controller, error)

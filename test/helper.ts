@@ -35,22 +35,21 @@ export async function createApp({ t }: { t: TestContext }) {
 export async function createTrafficante({ t, pathSendBody = '/ingest-body', pathSendMeta = '/ingest-meta' }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string }) {
     const loggerSpy = pinoTest.sink()
     const logger = pino(loggerSpy)
-  
+
     const server = fastify({ loggerInstance: logger })
 
     server.post(pathSendBody, (req, res) => {
-        console.log(' *** ingest ***')
-        console.log('req.body', req.body)
-        console.log('req.headers', req.headers)
-        console.log(' *** ')
+        logger.info({
+            body: req.body,
+            headers: req.headers
+        }, 'received body')
         res.send('OK')
     })
 
-    server.post(pathSendMeta, (req, res) => {
-        console.log(' *** ingest meta ***')
-        console.log('req.body', req.body)
-        console.log('req.headers', req.headers)
-        console.log(' *** ')
+    server.get(pathSendMeta, (req, res) => {
+        logger.info({
+            headers: req.headers
+        }, 'received meta')
         res.send('OK')
     })
 
@@ -70,21 +69,22 @@ export async function createTrafficante({ t, pathSendBody = '/ingest-body', path
     }
 }
 
-export function waitForLogMessage (loggerSpy: Stream.Transform, message: string, max = 100): Promise<void> {
+export function waitForLogMessage(loggerSpy: Stream.Transform, message: string, max = 100): Promise<void> {
     return new Promise((resolve, reject) => {
-      let count = 0
-      const fn = (received: any) => {
-        if (received.msg === message) {
-          loggerSpy.off('data', fn)
-          resolve()
+        let count = 0
+        const fn = (received: any) => {
+            console.log('received', received)
+            if (received.msg === message) {
+                loggerSpy.off('data', fn)
+                resolve()
+            }
+            count++
+            if (count > max) {
+                loggerSpy.off('data', fn)
+                reject(new Error(`Max message count reached on waitForLogMessage: ${message}`))
+            }
         }
-        count++
-        if (count > max) {
-          loggerSpy.off('data', fn)
-          reject(new Error(`Max message count reached on waitForLogMessage: ${message}`))
-        }
-      }
-      loggerSpy.on('data', fn)
+        
+        loggerSpy.on('data', fn)
     })
-  }
-  
+}
