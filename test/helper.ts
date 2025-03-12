@@ -1,12 +1,23 @@
-import fastify from 'fastify'
-
 import type { TestContext } from 'node:test'
+import type Stream from 'stream'
+
+import fastify from 'fastify'
+import pinoTest from 'pino-test'
+import pino from 'pino'
+
 
 export async function createApp({ t }: { t: TestContext }) {
     const server = fastify()
 
-    server.get('/', (req, res) => {
-        res.send('[index response]')
+    server.get('/dummy', (req, res) => {
+        for (const [key, value] of Object.entries(req.headers)) {
+            res.header(`x-request-headers-${key}`, value)
+        }
+        res.send('[dummy response]')
+    })
+
+    server.get('/error', (req, res) => {
+        res.status(500).send('Internal Server Error')
     })
 
     t.after(() => {
@@ -22,14 +33,17 @@ export async function createApp({ t }: { t: TestContext }) {
 }
 
 export async function createTrafficante({ t, pathSendBody = '/ingest-body', pathSendMeta = '/ingest-meta' }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string }) {
-    const server = fastify({ logger: true })
+    const loggerSpy = pinoTest.sink()
+    const logger = pino(loggerSpy)
+  
+    const server = fastify({ loggerInstance: logger })
 
     server.post(pathSendBody, (req, res) => {
         console.log(' *** ingest ***')
         console.log('req.body', req.body)
         console.log('req.headers', req.headers)
         console.log(' *** ')
-        res.send({ ok: true })
+        res.send('OK')
     })
 
     server.post(pathSendMeta, (req, res) => {
@@ -37,7 +51,7 @@ export async function createTrafficante({ t, pathSendBody = '/ingest-body', path
         console.log('req.body', req.body)
         console.log('req.headers', req.headers)
         console.log(' *** ')
-        res.send({ ok: true })
+        res.send('OK')
     })
 
     t.after(() => {
@@ -50,6 +64,27 @@ export async function createTrafficante({ t, pathSendBody = '/ingest-body', path
     return {
         server,
         host,
-        url: host
+        url: host,
+        loggerSpy,
+        logger
     }
 }
+
+export function waitForLogMessage (loggerSpy: Stream.Transform, message: string, max = 100): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let count = 0
+      const fn = (received: any) => {
+        if (received.msg === message) {
+          loggerSpy.off('data', fn)
+          resolve()
+        }
+        count++
+        if (count > max) {
+          loggerSpy.off('data', fn)
+          reject(new Error(`Max message count reached on waitForLogMessage: ${message}`))
+        }
+      }
+      loggerSpy.on('data', fn)
+    })
+  }
+  

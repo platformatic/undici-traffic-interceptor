@@ -2,6 +2,7 @@
 
 
 if ! response content-length, skip
+if trafficante response is err? retry?
 
 TODO
 

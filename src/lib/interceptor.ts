@@ -1,10 +1,8 @@
 import { Client, Dispatcher, request } from 'undici'
 import type { IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:http'
-import { Readable, PassThrough, type Duplex } from 'node:stream'
-import { URL } from 'node:url'
-import { stringify as JsonStringify } from 'safe-stable-stringify'
+import { PassThrough, type Duplex } from 'node:stream'
 import { xxh3 } from '@node-rs/xxhash'
-import { hashRequest, extractDataFromRequest, interceptRequest, interceptResponse, type TrafficanteOptions } from './trafficante.ts'
+import { interceptRequest, interceptResponse, type TrafficanteOptions } from './trafficante.ts'
 import { BloomFilter } from './bloom-filter.ts'
 
 const defaultTrafficanteOptions: TrafficanteOptions = {
@@ -18,23 +16,20 @@ const defaultTrafficanteOptions: TrafficanteOptions = {
     pathSendBody: '/ingest-body',
     pathSendMeta: '/ingest-meta',
   },
+  labels: {},
 }
 
 export type InterceptorContext = {
   dispatchOptions: Partial<Dispatcher.DispatchOptions>,
   options: TrafficanteOptions,
-  hasher: xxh3.Xxh3, // TODO generic interface: reset, update, digest: bigint
-
-  data?: Record<string, string> // extracted request data
+  hasher: xxh3.Xxh3,
 
   // request
   request: {
     method: Dispatcher.HttpMethod
     headers: IncomingHttpHeaders
-    url?: URL
-    query?: string // stable json stringified query string
-    hash?: bigint // hash of url.pathname + stable json stringified query string
-    hashString?: string
+    url?: string // domain name + path / no query string
+    hash?: bigint // hash of request.url
   }
 
   // response
@@ -42,8 +37,9 @@ export type InterceptorContext = {
     statusCode: number
     headers: OutgoingHttpHeaders
     hash?: bigint // hash of response body
-    hashString?: string
   }
+
+  labels: Record<string, string>
 
   skip: boolean | undefined
 }
@@ -54,15 +50,13 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
   private bloomFilter!: BloomFilter
   private client!: Client
-  
+
   private context!: InterceptorContext
 
   private send!: Promise<Dispatcher.ResponseData<null>>
   private writer!: PassThrough
 
   private interceptRequest: (context: InterceptorContext) => boolean
-  private hashRequest: (context: InterceptorContext) => bigint
-  private extractDataFromRequest: (context: InterceptorContext) => Record<string, string>
   private interceptResponse: (context: InterceptorContext) => boolean
 
   constructor(
@@ -80,11 +74,16 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     if (!options.bloomFilter || typeof options.bloomFilter.errorRate !== 'number' || options.bloomFilter.errorRate <= 0 || options.bloomFilter.errorRate >= 1) {
       throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_BLOOM_FILTER_ERROR_RATE')
     }
-    if (typeof options.maxResponseSize !== 'number' || options.maxResponseSize <= 0) {
+    if (options.maxResponseSize === undefined) {
+      this.context.options.maxResponseSize = defaultTrafficanteOptions.maxResponseSize
+    } else if (typeof options.maxResponseSize !== 'number' || options.maxResponseSize <= 0) {
       throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_MAX_RESPONSE_SIZE')
     }
     if (!options.trafficante || typeof options.trafficante.url !== 'string' || options.trafficante.url.length === 0) {
       throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_TRAFFICANTE_URL')
+    }
+    if (!options.labels) {
+      this.context.labels = defaultTrafficanteOptions.labels
     }
 
     this.dispatch = dispatch
@@ -97,6 +96,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       dispatchOptions,
       options,
       hasher: xxh3.Xxh3.withSeed(), // TODO seed option?
+      labels: options.labels ?? {},
 
       request: {
         method: 'GET',
@@ -111,8 +111,6 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     }
 
     this.interceptRequest = options.interceptRequest ?? interceptRequest
-    this.hashRequest = options.hashRequest ?? hashRequest
-    this.extractDataFromRequest = options.extractDataFromRequest ?? extractDataFromRequest
     this.interceptResponse = options.interceptResponse ?? interceptResponse
   }
 
@@ -127,12 +125,10 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     this.context.request.method = this.context.dispatchOptions.method as Dispatcher.HttpMethod
     this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
-    this.context.request.url = new URL(this.context.dispatchOptions.path as string, this.context.dispatchOptions.origin as string)
-    this.context.request.query = JsonStringify(Object.fromEntries(this.context.request.url.searchParams))
-    this.context.request.hash = this.hashRequest(this.context)
-    this.context.request.hashString = this.context.request.hash.toString()
-    this.context.data = this.extractDataFromRequest(this.context)
+    const url = new URL(this.context.dispatchOptions.path as string, this.context.dispatchOptions.origin as string)
+    this.context.request.url = url.host + url.pathname
 
+    this.context.request.hash = this.context.hasher.update(this.context.request.url).digest()
     if (this.bloomFilter.has(this.context.request.hash)) {
       this.context.skip = true
       return this.handler.onRequestStart?.(controller, context)
@@ -165,9 +161,15 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       headers: {
         'content-type': this.context.response.headers['content-type'] || 'application/octet-stream',
         'content-length': (this.context.response.headers['content-length'] ?? '0').toString(),
-        'x-trafficante-data': JSON.stringify(this.context.data),
-        'x-request-data': JSON.stringify({ url: this.context.request.url?.href, headers: this.context.request.headers }),
-        'x-response-data': JSON.stringify({ headers: this.context.response.headers, code: this.context.response.statusCode })
+        'x-trafficante-labels': JSON.stringify(this.context.labels),
+        'x-request-data': JSON.stringify({
+          url: this.context.request.url,
+          headers: this.context.request.headers
+        }),
+        'x-response-data': JSON.stringify({
+          headers: this.context.response.headers,
+          code: this.context.response.statusCode
+        })
       },
       body: responseBodyPassthrough
     })
@@ -202,20 +204,17 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     await this.send
 
     this.context.response.hash = this.context.hasher.digest()
-    this.context.response.hashString = this.context.response.hash.toString()
+    // this.context.response.hashString = this.context.response.hash.toString()
 
     await this.client.request({
       path: this.context.options.trafficante.pathSendMeta,
-      method: 'POST', // GET?
+      method: 'GET',
       headers: {
         'content-type': 'application/json',
-        // ? 'x-trafficante-data': JSON.stringify(this.context.data)
-      },
-      body: JSON.stringify({
-        requestHash: this.context.request.hashString ?? '',
-        responseHash: this.context.response.hashString ?? ''
-      })
-    })    
+        'x-request-url': this.context.request.url,
+        'x-response-hash': this.context.response.hash.toString()
+      }
+    })
 
     this.handler.onResponseEnd?.(controller, trailers)
   }

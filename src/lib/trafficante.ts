@@ -6,7 +6,7 @@ export const INTERCEPT_REQUEST_METHODS: Array<Dispatcher.HttpMethod> = ['GET']
 export const SKIPPING_REQUEST_HEADERS = ['cache-control', 'pragma', 'if-none-match', 'if-modified-since',
   'authorization', 'proxy-authorization']
 export const SKIPPING_RESPONSE_HEADERS = ['etag', 'last-modified', 'expires', 'cache-control']
-export const INTERCEPT_RESPONSE_STATUS_CODES = (code: number) => (code >= 200 && code < 300) || code === 400
+export const INTERCEPT_RESPONSE_STATUS_CODES = (code: number) => (code > 199 && code < 300) // TODO review: skip 204
 export const SKIPPING_COOKIE_SESSION_IDS = ['sessionId',
   'JSESSIONID',
   'PHPSESSID',
@@ -33,13 +33,10 @@ export interface TrafficanteOptions {
   }
 
   maxResponseSize: number
+  labels: Record<string, string>
 
   // Override default interceptRequest function for custom logic or testing
   interceptRequest?: (context: InterceptorContext) => boolean
-  // Override default hashRequest function for custom logic or testing
-  hashRequest?: (context: InterceptorContext) => bigint
-  // Override default extractDataFromRequest function for custom logic or testing
-  extractDataFromRequest?: (context: InterceptorContext) => Record<string, string>
   // Override default interceptResponse function for custom logic or testing
   interceptResponse?: (context: InterceptorContext) => boolean
 }
@@ -66,28 +63,6 @@ export function interceptRequest (context: InterceptorContext): boolean {
   }
 
   return true
-}
-
-export function extractDataFromRequest (context: InterceptorContext): Record<string, string> {
-  // TODO
-  // const data: Record<string, string> = {}
-  // const pathSegments = context.request.url?.pathname.split('/').filter(Boolean) || []
-  // if (pathSegments.length >= 1) data.applicationId = pathSegments[0]
-  // if (pathSegments.length >= 2) data.taxonomyId = pathSegments[1]
-  // if (pathSegments.length >= 3) data.serviceId = pathSegments[2]
-
-  return {
-    applicationId: 'TODO',
-    taxonomyId: 'TODO',
-    serviceId: 'TODO',
-    telemetryId: 'TODO',
-    requestHash: context.request.hashString ?? ''
-  }
-}
-
-export function hashRequest (context: InterceptorContext): bigint {
-  context.hasher.update(`${context.request.url?.pathname}?${context.request.query}`)
-  return context.hasher.digest()
 }
 
 export function interceptResponse (context: InterceptorContext): boolean {

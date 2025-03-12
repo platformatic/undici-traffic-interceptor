@@ -1,5 +1,5 @@
 import { test, describe } from 'node:test'
-// import assert from 'node:assert/strict'
+import assert from 'node:assert/strict'
 import { request, Agent } from 'undici'
 
 import { createTrafficanteInterceptor, type TrafficanteOptions } from '../src/index.ts'
@@ -7,6 +7,10 @@ import { createTrafficanteInterceptor, type TrafficanteOptions } from '../src/in
 import { createApp, createTrafficante } from './helper.ts'
 
 const defaultOptions: TrafficanteOptions = {
+  labels: {
+    applicationId: 'app-1',
+    taxonomyId: 'tax-1',
+  },
   bloomFilter: {
     size: 1000,
     errorRate: 0.01,
@@ -21,10 +25,11 @@ const defaultOptions: TrafficanteOptions = {
 
 describe('TrafficanteInterceptor', async () => {
 
-  test('should intercept request/response and extract data', async (t) => {
+  test('should intercept request/response and send to trafficante', async (t) => {
     const app = await createApp({ t })
     const trafficante = await createTrafficante({ t })
     const agent = new Agent().compose(createTrafficanteInterceptor({
+
       ...structuredClone(defaultOptions),
       trafficante: {
         ...defaultOptions.trafficante,
@@ -32,17 +37,19 @@ describe('TrafficanteInterceptor', async () => {
       }
     }))
 
-    const response = await request(`${app.host}/?var1=a&var2=b&A=B&`, {
+    const response = await request(`${app.host}/dummy`, {
       dispatcher: agent,
       method: 'GET',
       headers: {
-        // 'cache-control': 'no-cache',
-        // 'authorization': 'Bearer 1234567890',
-        // 'cookie': 'sessionId=1234567890'
         'Content-Type': 'application/json',
-        'User-Agent': 'test'
+        'User-Agent': 'test-user-agent'
       }
     })
+
+    assert.equal(response.statusCode, 200)
+    assert.equal(await response.body.text(), '[dummy response]')
+    assert.equal(response.headers['x-request-headers-user-agent'], 'test-user-agent')
+    assert.equal(response.headers['x-request-headers-content-type'], 'application/json')
 
     // TODO
     // assert: response from app is correct
@@ -55,6 +62,14 @@ describe('TrafficanteInterceptor', async () => {
     // console.log(' *** ')
   })
 
+  // on server error
+  // change response body on calls
+
+  // 'cache-control': 'no-cache',
+  // 'authorization': 'Bearer 1234567890',
+  // 'cookie': 'sessionId=1234567890'
+
+  // url, different domains, ignore qs, trailing slash in path
   // match/skip request
   // - by bloom filter
   // - by headers
@@ -65,5 +80,5 @@ describe('TrafficanteInterceptor', async () => {
   // - by cookies
   // - by response size
 
-  // extract data from request, by url/path
+  // abort
 })
