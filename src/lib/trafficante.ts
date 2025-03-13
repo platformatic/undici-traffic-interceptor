@@ -1,6 +1,7 @@
 import { parse as parseCookie } from 'cookie'
 import type { Dispatcher } from 'undici'
 import type { InterceptorContext } from './interceptor.ts'
+import type { Logger } from 'pino'
 
 export const INTERCEPT_REQUEST_METHODS: Array<Dispatcher.HttpMethod> = ['GET']
 export const SKIPPING_REQUEST_HEADERS = ['cache-control', 'pragma', 'if-none-match', 'if-modified-since',
@@ -18,10 +19,18 @@ export const SKIPPING_COOKIE_SESSION_IDS = ['sessionId',
   'access_token',
   'csrf_token',
   'XSRF-TOKEN',
-  'X-CSRF-TOKEN'
+  'X-CSRF-TOKEN',
+  'session',
+  'refreshToken',
+  'token',
+  'sessionId',
+  'csrfToken',
+  'authToken',
+  'accessToken',
 ]
 
 export interface TrafficanteOptions {
+  logger?: Logger
   trafficante: {
     url: string
     pathSendBody: string
@@ -42,6 +51,7 @@ export interface TrafficanteOptions {
 }
 
 export function interceptRequest (context: InterceptorContext): boolean {
+  context.logger?.debug('interceptRequest')
   if (!INTERCEPT_REQUEST_METHODS.includes(context.request.method as Dispatcher.HttpMethod)) {
     return false
   }
@@ -50,13 +60,15 @@ export function interceptRequest (context: InterceptorContext): boolean {
     return true
   }
 
-  if (SKIPPING_REQUEST_HEADERS.some(header => header in context.request.headers)) {
+  const headers = Object.keys(context.request.headers).map(header => header.toLowerCase())
+
+  if (SKIPPING_REQUEST_HEADERS.some(header => headers.includes(header))) {
     return false
   }
 
-  const cookies = context.request.headers['cookie']
+  const cookies = headers.find(header => header.toLowerCase() === 'cookie')
   if (cookies) {
-    const cookieSessionIds = Object.keys(parseCookie(cookies)).filter(id => SKIPPING_COOKIE_SESSION_IDS.includes(id))
+    const cookieSessionIds = Object.keys(parseCookie(cookies)).filter(id => SKIPPING_COOKIE_SESSION_IDS.includes(id.toLowerCase()))
     if (cookieSessionIds.length > 0) {
       return false
     }
@@ -74,28 +86,31 @@ export function interceptResponse (context: InterceptorContext): boolean {
     return true
   }
 
-  if (SKIPPING_RESPONSE_HEADERS.some(header => header in context.response.headers)) {
+  const headers = Object.keys(context.response.headers).map(header => header.toLowerCase())
+
+  if (SKIPPING_RESPONSE_HEADERS.some(header => headers.includes(header))) {
     return false
   }
 
-  if (!context.response.headers['content-length'] || Number(context.response.headers['content-length']) > context.options.maxResponseSize) {
+  const contentLength = headers.find(header => header.toLowerCase() === 'content-length')
+  if (!contentLength || Number(contentLength) > context.options.maxResponseSize) {
     return false
   }
 
-  const cookies = context.response.headers['set-cookie']
+  const cookies = headers.find(header => header.toLowerCase() === 'set-cookie')
   if (!cookies) {
     return true
   }
 
   if (Array.isArray(cookies)) {
     for (const cookie of cookies) {
-      const cookieSessionIds = Object.keys(parseCookie(cookie)).filter(id => SKIPPING_COOKIE_SESSION_IDS.includes(id))
+      const cookieSessionIds = Object.keys(parseCookie(cookie)).filter(id => SKIPPING_COOKIE_SESSION_IDS.includes(id.toLowerCase()))
       if (cookieSessionIds.length > 0) {
         return false
       }
     }
   } else {
-    const cookieSessionIds = Object.keys(parseCookie(cookies)).filter(id => SKIPPING_COOKIE_SESSION_IDS.includes(id))
+    const cookieSessionIds = Object.keys(parseCookie(cookies)).filter(id => SKIPPING_COOKIE_SESSION_IDS.includes(id.toLowerCase()))
     if (cookieSessionIds.length > 0) {
       return false
     }

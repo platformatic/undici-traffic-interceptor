@@ -4,16 +4,17 @@ import type Stream from 'stream'
 import fastify from 'fastify'
 import pinoTest from 'pino-test'
 import pino from 'pino'
+import EventEmitter from 'events'
 
 
 export async function createApp({ t }: { t: TestContext }) {
     const server = fastify()
 
-    server.get('/dummy', (req, res) => {
+    server.get('/*', (req, res) => {
         for (const [key, value] of Object.entries(req.headers)) {
             res.header(`x-request-headers-${key}`, value)
         }
-        res.send('[dummy response]')
+        res.send(`[${req.url} response]`)
     })
 
     server.get('/error', (req, res) => {
@@ -25,16 +26,19 @@ export async function createApp({ t }: { t: TestContext }) {
     })
 
     await server.listen({ port: 0, host: '0.0.0.0' })
+    const port = (server.server.address() as import('net').AddressInfo).port
 
     return {
         server,
-        host: `http://localhost:${(server.server.address() as import('net').AddressInfo).port}`
+        host: `http://localhost:${port}`,
+        port
     }
 }
 
 export async function createTrafficante({ t, pathSendBody = '/ingest-body', pathSendMeta = '/ingest-meta' }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string }) {
-    const loggerSpy = pinoTest.sink()
-    const logger = pino(loggerSpy)
+    const loggerStream = pinoTest.sink()
+    const logger = pino({ level: 'debug' }, loggerStream)
+    const loggerSpy = listenLogger(loggerStream, t)
 
     const server = fastify({ loggerInstance: logger })
 
@@ -69,22 +73,43 @@ export async function createTrafficante({ t, pathSendBody = '/ingest-body', path
     }
 }
 
-export function waitForLogMessage(loggerSpy: Stream.Transform, message: string, max = 100): Promise<void> {
+export function listenLogger(loggerStream: Stream.Transform, t: TestContext) {
+    const spy = {
+        buffer: [] as any[],
+        events: new EventEmitter()
+    }
+    const fn = (received: any) => {
+        spy.buffer.push(received)
+        spy.events.emit('data', received)
+    }
+    
+    loggerStream.on('data', fn)
+
+    t.after(() => {
+        loggerStream.off('data', fn)
+    })
+
+    return spy
+}
+
+export function waitForLogMessage(spy: { buffer: any[], events: EventEmitter }, match: (received: any) => boolean, max = 100): Promise<void> {
     return new Promise((resolve, reject) => {
-        let count = 0
+
         const fn = (received: any) => {
-            console.log('received', received)
-            if (received.msg === message) {
-                loggerSpy.off('data', fn)
+            if (match(received)) {
                 resolve()
             }
             count++
             if (count > max) {
-                loggerSpy.off('data', fn)
-                reject(new Error(`Max message count reached on waitForLogMessage: ${message}`))
+                reject(new Error(`Max message count reached on waitForLogMessage`))
             }
         }
-        
-        loggerSpy.on('data', fn)
+
+        let count = 0
+        for (const received of spy.buffer) {
+            fn(received)
+        }
+
+        spy.events.on('data', fn)
     })
 }
