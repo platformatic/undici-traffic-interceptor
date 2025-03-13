@@ -119,7 +119,7 @@ describe('TrafficanteInterceptor', () => {
     await Promise.all(promises)
   })
 
-  test('should not pass request data to bloom filter, with concurrency', async (t) => {
+  test('should not pass request data to bloom filter but only meta, with concurrency', async (t) => {
     const app = await createApp({ t })
     const trafficante = await createTrafficante({ t })
     const agent = new Agent().compose(createTrafficanteInterceptor({
@@ -159,6 +159,12 @@ describe('TrafficanteInterceptor', () => {
         await waitForLogMessage(trafficante.loggerSpy, (received) => {
           return received.msg === 'skip by bloom filter' &&
             received.request?.headers['x-counter'] === i.toString()
+        })
+
+        await waitForLogMessage(trafficante.loggerSpy, (received) => {
+          return received.msg === 'received meta' &&
+            received.headers['x-request-url'] === `localhost:${app.port}${path}` &&
+            received.headers['x-response-hash'] === '8770641927759941325'
         })
       })())
     }
@@ -310,10 +316,6 @@ describe('TrafficanteInterceptor', () => {
     }
 
     await Promise.all(promises)
-  })
-
-  test('should pass response hash on request filtered by request bloom filter, with concurrency', async (t) => {
-    // TODO!
   })
 
   test('should not pass response data to trafficante due to response status code', async (t) => {
