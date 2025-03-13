@@ -43,7 +43,8 @@ export type InterceptorContext = {
 
   labels: Record<string, string>
 
-  skip: boolean | undefined
+  skipByRequest: boolean | undefined
+  skipByResponse: boolean | undefined
 }
 
 class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
@@ -67,25 +68,6 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     client: Client,
     handler: Dispatcher.DispatchHandler
   ) {
-    // Validate options
-    if (!options.bloomFilter || typeof options.bloomFilter.size !== 'number' || options.bloomFilter.size <= 0) {
-      throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_BLOOM_FILTER_SIZE')
-    }
-    if (!options.bloomFilter || typeof options.bloomFilter.errorRate !== 'number' || options.bloomFilter.errorRate <= 0 || options.bloomFilter.errorRate >= 1) {
-      throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_BLOOM_FILTER_ERROR_RATE')
-    }
-    if (options.maxResponseSize === undefined) {
-      this.context.options.maxResponseSize = defaultTrafficanteOptions.maxResponseSize
-    } else if (typeof options.maxResponseSize !== 'number' || options.maxResponseSize <= 0) {
-      throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_MAX_RESPONSE_SIZE')
-    }
-    if (!options.trafficante || typeof options.trafficante.url !== 'string' || options.trafficante.url.length === 0) {
-      throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_TRAFFICANTE_URL')
-    }
-    if (!options.labels) {
-      this.context.labels = defaultTrafficanteOptions.labels
-    }
-
     this.handler = handler
 
     this.bloomFilter = bloomFilter
@@ -107,7 +89,8 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
         headers: {},
       },
 
-      skip: undefined,
+      skipByRequest: undefined,
+      skipByResponse: undefined,
     }
 
     this.interceptRequest = options.interceptRequest ?? interceptRequest
@@ -115,14 +98,12 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onRequestStart (controller: Dispatcher.DispatchController, context: unknown): void {
-    this.context.logger?.debug('onResponseStart')
-
     this.context.request.method = this.context.dispatchOptions.method as Dispatcher.HttpMethod
     this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
 
     if (!this.interceptRequest(this.context)) {
       this.context.logger?.debug({ request: this.context.request }, 'skip by request')
-      this.context.skip = true
+      this.context.skipByRequest = true
       this.handler.onRequestStart?.(controller, context)
       return
     }
@@ -133,7 +114,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.context.request.hash = this.context.hasher.update(this.context.request.url).digest()
     if (this.bloomFilter.has(this.context.request.hash)) {
       this.context.logger?.debug('skip by bloom filter')
-      this.context.skip = true
+      this.context.skipByRequest = true
       this.handler.onRequestStart?.(controller, context)
       return
     }
@@ -143,13 +124,6 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onResponseStart (controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, statusMessage?: string): void {
-    this.context.logger?.debug('onResponseStart')
-
-    if (this.context.skip) {
-      this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage)
-      return
-    }
-
     this.context.response = {
       statusCode,
       headers
@@ -157,7 +131,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     if (!this.interceptResponse(this.context)) {
       this.context.logger?.debug('skip by response')
-      this.context.skip = true
+      this.context.skipByResponse = true
       this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage)
       return
     }
@@ -191,9 +165,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   async onResponseData (controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
-    this.context.logger?.debug('onResponseData')
-
-    if (this.context.skip) {
+    if (this.context.skipByResponse) {
       this.handler.onResponseData?.(controller, chunk)
       return
     }
@@ -206,8 +178,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   async onResponseEnd (controller: Dispatcher.DispatchController, trailers: IncomingHttpHeaders): Promise<void> {
-    if (this.context.skip) {
-      this.context.logger?.debug('onResponseEnd skipped')
+    if (this.context.skipByResponse) {
       this.handler.onResponseEnd?.(controller, trailers)
       return
     }
@@ -238,11 +209,6 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   async onResponseError (controller: Dispatcher.DispatchController, error: Error): Promise<void> {
     this.context.logger?.error('TrafficanteInterceptor onResponseError', error)
 
-    if (this.context.skip) {
-      this.handler.onResponseError?.(controller, error)
-      return
-    }
-
     // TODO Abort the stream and clean up
     // this.writer.destroy(error)
     // const response = await this.send
@@ -255,15 +221,37 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 }
 
 export function createTrafficanteInterceptor (options: TrafficanteOptions = defaultTrafficanteOptions): Dispatcher.DispatchInterceptor {
-  const bloomFilter = new BloomFilter(options.bloomFilter.size, options.bloomFilter.errorRate)
-  const client = new Client(options.trafficante.url)
+  const { logger, ...optionsWithoutLogger } = options
+  const validatedOptions: TrafficanteOptions = structuredClone(optionsWithoutLogger)
+  // Validate options
+  if (!validatedOptions.bloomFilter || typeof validatedOptions.bloomFilter.size !== 'number' || validatedOptions.bloomFilter.size <= 0) {
+    throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_BLOOM_FILTER_SIZE')
+  }
+  if (!options.bloomFilter || typeof options.bloomFilter.errorRate !== 'number' || options.bloomFilter.errorRate <= 0 || options.bloomFilter.errorRate >= 1) {
+    throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_BLOOM_FILTER_ERROR_RATE')
+  }
+  if (validatedOptions.maxResponseSize === undefined) {
+    validatedOptions.maxResponseSize = defaultTrafficanteOptions.maxResponseSize
+  } else if (typeof validatedOptions.maxResponseSize !== 'number' || validatedOptions.maxResponseSize <= 0) {
+    throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_MAX_RESPONSE_SIZE')
+  }
+  if (!validatedOptions.trafficante || typeof validatedOptions.trafficante.url !== 'string' || validatedOptions.trafficante.url.length === 0) {
+    throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_TRAFFICANTE_URL')
+  }
+  if (!validatedOptions.labels) {
+    validatedOptions.labels = defaultTrafficanteOptions.labels
+  }
+  validatedOptions.logger = logger
+
+  const bloomFilter = new BloomFilter(validatedOptions.bloomFilter.size, validatedOptions.bloomFilter.errorRate)
+  const client = new Client(validatedOptions.trafficante.url)
 
   return function trafficanteInterceptor (dispatch: Dispatcher['dispatch']): Dispatcher['dispatch'] {
     return function InterceptedDispatch (
       dispatchOptions: Dispatcher.DispatchOptions,
       handler: Dispatcher.DispatchHandler
     ): boolean {
-      return dispatch(dispatchOptions, new TrafficanteInterceptor(dispatchOptions, options, bloomFilter, client, handler))
+      return dispatch(dispatchOptions, new TrafficanteInterceptor(dispatchOptions, validatedOptions, bloomFilter, client, handler))
     }
   }
 }

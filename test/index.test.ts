@@ -72,6 +72,7 @@ describe('TrafficanteInterceptor', async () => {
           received.headers['x-response-hash'] === '5034874602790624239'
       }),
     ])
+
   })
 
   test('should not pass request data to trafficante due to request headers, with concurrency', async (t) => {
@@ -321,97 +322,138 @@ describe('TrafficanteInterceptor', async () => {
     await Promise.all(promises)
   })
 
-/*
-  test('should skip/match based on response properties', async (t) => {
+
+  test('should pass response hash on multiple requests', async (t) => {
     const app = await createApp({ t })
     const trafficante = await createTrafficante({ t })
-    
-    const options = structuredClone(defaultOptions)
-    options.interceptResponse = (context) => {
-      return context.response.statusCode === 500
-    }
-    
     const agent = new Agent().compose(createTrafficanteInterceptor({
-      ...options,
+      ...structuredClone(defaultOptions),
       trafficante: {
-        ...options.trafficante,
+        ...defaultOptions.trafficante,
         url: trafficante.url,
-      }
+      },
+      logger: trafficante.logger
     }))
 
-    // Should match error response and send to trafficante
-    try {
-      await request(`${app.host}/error`, {
+    const requests = [
+      {
+        path: '/product/42',
+        method: 'GET',
+        qs: { responseCode: 200, responseBody: '{"id": 42, "name": "Funny Hat"}' },
+        expected: {
+          body: true,
+          meta: { hash: '14931838552541713377' },
+        }
+      },
+      {
+        path: '/product/43',
+        method: 'GET',
+        qs: { responseCode: 200, responseBody: '{"id": 43, "name": "Rubber Duck"}' },
+        expected: {
+          body: true,
+          meta: { hash: '9396428268935065097' },
+        }
+      },
+      {
+        path: '/product/42',
+        method: 'GET',
+        qs: { responseCode: 200, responseBody: '{"id": 42, "name": "Funny Hat"}' },
+        expected: {
+          body: false,
+          meta: { hash: '14931838552541713377' },
+        }
+      },
+      // {
+      //   path: '/product/42',
+      //   method: 'GET',
+      //   qs: { responseCode: 200, responseBody: '{"id": 42, "name": "Funny Yellow Hat"}' },
+      //   expected: {
+      //     body: false,
+      //     meta: { hash: '14931838552541713377' },
+      //   }
+      // },
+      // {
+      //   path: '/product/42',
+      //   method: 'GET',
+      //   qs: { responseCode: 500 },
+      //   expected: {
+      //     body: false,
+      //     meta: null,
+      //   }
+      // },
+    ]
+
+    for (const req of requests) {
+      await request(`${app.host}${req.path}`, {
         dispatcher: agent,
-        method: 'GET'
+        method: req.method,
+        query: req.qs
       })
-    } catch (err) {
-      assert.equal(err.statusCode, 500)
+
+      await waitForLogMessage(trafficante.loggerSpy, (received) => {
+        if (received.msg === 'received body') {
+          if (req.expected.body) {
+            return received.body === req.qs.responseBody &&
+              received.headers['x-trafficante-labels'] === '{"applicationId":"app-1","taxonomyId":"tax-1"}' &&
+              received.headers['x-request-data'] === `{"url":"localhost:${app.port}${req.path}"}`
+          } else {
+            console.log(received)
+            throw new Error('not expected body for request ' + req.path)
+          }
+        }
+        return false
+      })
+
+      await waitForLogMessage(trafficante.loggerSpy, (received) => {
+        if (received.msg === 'received meta') {
+          //console.log(received)
+          if (req.expected.meta) {
+            return received.headers['x-request-url'] === `localhost:${app.port}${req.path}` &&
+              received.headers['x-response-hash'] === req.expected.meta?.hash
+          } else {
+            throw new Error('not expected meta for request ' + req.path)
+          }
+        }
+        return false
+      })
+
+      trafficante.loggerSpy.reset()
     }
 
-    const [bodyLog] = await Promise.all([
-      waitForLogMessage(trafficante.loggerSpy, 'received body'),
-      waitForLogMessage(trafficante.loggerSpy, 'received meta')
-    ])
-    assert.ok(bodyLog)
+    // [
+    //   waitForLogMessage(trafficante.loggerSpy, (received) => {
+    //     if (received.msg === 'received body') {
+    //       return received.body === '[/dummy response]' &&
+    //         received.headers['x-trafficante-labels'] === '{"applicationId":"app-1","taxonomyId":"tax-1"}' &&
+    //         received.headers['x-request-data'] === `{"url":"localhost:${app.port}/dummy","headers":{"Content-Type":"application/json","User-Agent":"test-user-agent"}}`
+    //         && (() => {
+    //           const responseData = JSON.parse(received.headers['x-response-data'])
+    //             responseData.code === 200
+    //         })()
+    //     }
+    //     return false
+    //   }),
+    //   waitForLogMessage(trafficante.loggerSpy, (received) => {
+    //     return received.msg === 'received meta' &&
+    //       received.headers['x-request-url'] === `localhost:${app.port}${request.path}` &&
+    //       received.headers['x-response-hash'] === request.expected.meta?.hash
+    //   }),
+    // ])
 
-    // Should not match success response and skip
-    await request(`${app.host}/dummy`, {
-      dispatcher: agent,
-      method: 'GET'
-    })
-
-    // No additional logs should be received
-    await assert.rejects(
-      waitForLogMessage(trafficante.loggerSpy, 'received body', 10),
-      /Max message count reached/
-    )
   })
 
-  test('should skip/match based on response size', async (t) => {
-    const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    
-    const options = structuredClone(defaultOptions)
-    options.maxResponseSize = 100 // Set small size limit for testing
-    
-    const agent = new Agent().compose(createTrafficanteInterceptor({
-      ...options,
-      trafficante: {
-        ...options.trafficante,
-        url: trafficante.url,
-      }
-    }))
-
-    // Should match large response and send to trafficante
-    const largeData = 'x'.repeat(200)
-    await request(`${app.host}/dummy`, {
-      dispatcher: agent,
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: largeData
-    })
-
-    const [bodyLog] = await Promise.all([
-      waitForLogMessage(trafficante.loggerSpy, 'received body'),
-      waitForLogMessage(trafficante.loggerSpy, 'received meta')
-    ])
-    assert.ok(bodyLog)
-
-    // Should not match small response and skip
-    const smallData = 'small'
-    await request(`${app.host}/dummy`, {
-      dispatcher: agent,
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: smallData
-    })
-
-    // No additional logs should be received
-    await assert.rejects(
-      waitForLogMessage(trafficante.loggerSpy, 'received body', 10),
-      /Max message count reached/
-    )
+  test('should pass response hash on request filtered by request bloom filter, with concurrency', async (t) => {
   })
-    */
+
+  test('should not pass response data to trafficante due to response headers, with concurrency', async (t) => {
+  })
+
+  test('should not pass response data to trafficante due to response status code, with concurrency', async (t) => {
+  })
+
+  test('should not pass response data to trafficante due to response size, with concurrency', async (t) => {
+  })
+
+  test('should not pass response data to trafficante due to response headers cookies, with concurrency', async (t) => {
+  })
 })

@@ -14,6 +14,16 @@ export async function createApp({ t }: { t: TestContext }) {
         for (const [key, value] of Object.entries(req.headers)) {
             res.header(`x-request-headers-${key}`, value)
         }
+
+        // @ts-ignore-next
+        if (req.query?.responseCode) { res.status(Number(req.query.responseCode)) }
+        // @ts-ignore-next
+        if (req.query?.responseBody) {
+            // @ts-ignore-next
+            res.send(req.query.responseBody)
+            return
+        }
+
         res.send(`[${req.url} response]`)
     })
 
@@ -76,13 +86,16 @@ export async function createTrafficante({ t, pathSendBody = '/ingest-body', path
 export function listenLogger(loggerStream: Stream.Transform, t: TestContext) {
     const spy = {
         buffer: [] as any[],
-        events: new EventEmitter()
+        events: new EventEmitter(),
+        reset: () => {
+            spy.buffer.length = 0
+        }
     }
     const fn = (received: any) => {
         spy.buffer.push(received)
         spy.events.emit('data', received)
     }
-    
+
     loggerStream.on('data', fn)
 
     t.after(() => {
