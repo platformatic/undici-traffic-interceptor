@@ -2,22 +2,37 @@ import { Client, Dispatcher } from 'undici'
 import type { IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:http'
 import { PassThrough, type Duplex } from 'node:stream'
 import { xxh3 } from '@node-rs/xxhash'
-import { interceptRequest, interceptResponse, type TrafficanteOptions } from './trafficante.ts'
+import {
+  interceptRequest,
+  interceptResponse,
+  type TrafficanteOptions,
+  SKIPPING_REQUEST_HEADERS,
+  SKIPPING_RESPONSE_HEADERS,
+  INTERCEPT_RESPONSE_STATUS_CODES,
+  SKIPPING_COOKIE_SESSION_IDS,
+  DEFAULT_BLOOM_FILTER_SIZE,
+  DEFAULT_BLOOM_FILTER_ERROR_RATE,
+  DEFAULT_MAX_RESPONSE_SIZE
+} from './trafficante.ts'
 import { BloomFilter } from './bloom-filter.ts'
 import type { Logger } from 'pino'
 
 const defaultTrafficanteOptions: TrafficanteOptions = {
   bloomFilter: {
-    size: 100_000,
-    errorRate: 0.1,
+    size: DEFAULT_BLOOM_FILTER_SIZE,
+    errorRate: DEFAULT_BLOOM_FILTER_ERROR_RATE,
   },
-  maxResponseSize: 5 * 1024 * 1024, // 5MB
+  maxResponseSize: DEFAULT_MAX_RESPONSE_SIZE,
   trafficante: {
     url: '',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/ingest-meta',
   },
   labels: {},
+  skippingRequestHeaders: SKIPPING_REQUEST_HEADERS,
+  skippingResponseHeaders: SKIPPING_RESPONSE_HEADERS,
+  interceptResponseStatusCodes: INTERCEPT_RESPONSE_STATUS_CODES,
+  skippingCookieSessionIds: SKIPPING_COOKIE_SESSION_IDS
 }
 
 export type InterceptorContext = {
@@ -248,6 +263,11 @@ export function createTrafficanteInterceptor (options: TrafficanteOptions = defa
   if (!validatedOptions.labels) {
     validatedOptions.labels = defaultTrafficanteOptions.labels
   }
+  validatedOptions.skippingRequestHeaders = optionsWithoutLogger.skippingRequestHeaders ?? defaultTrafficanteOptions.skippingRequestHeaders
+  validatedOptions.skippingResponseHeaders = optionsWithoutLogger.skippingResponseHeaders ?? defaultTrafficanteOptions.skippingResponseHeaders
+  validatedOptions.interceptResponseStatusCodes = optionsWithoutLogger.interceptResponseStatusCodes ?? defaultTrafficanteOptions.interceptResponseStatusCodes
+  validatedOptions.skippingCookieSessionIds = optionsWithoutLogger.skippingCookieSessionIds ?? defaultTrafficanteOptions.skippingCookieSessionIds
+
   validatedOptions.logger = logger
 
   const bloomFilter = new BloomFilter(validatedOptions.bloomFilter.size, validatedOptions.bloomFilter.errorRate)

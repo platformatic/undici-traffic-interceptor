@@ -1,18 +1,20 @@
 # undici-trafficante-interceptor
 
-p
+doc
+
+options: lowercase
 
 if ! response content-length, skip
 if trafficante response is err? retry?
+! only GET
 ? trailing slash
 ? deploy
 ? github actions
 
-
 TODO
 
-- options: headers, status code, methods ...
-- aborts
+- abort
+- test coverage, options
 - NEXT multi-thread hashing
 
 CLEANUP
