@@ -113,12 +113,11 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     this.context.request.hash = this.context.hasher.update(this.context.request.url).digest()
     if (this.bloomFilter.has(this.context.request.hash)) {
-      this.context.logger?.debug('skip by bloom filter')
+      this.context.logger?.debug({ request: this.context.request }, 'skip by bloom filter')
       this.context.skipByRequest = true
-      this.handler.onRequestStart?.(controller, context)
-      return
+    } else {
+      this.bloomFilter.add(this.context.request.hash)
     }
-    this.bloomFilter.add(this.context.request.hash)
 
     this.handler.onRequestStart?.(controller, context)
   }
@@ -130,34 +129,36 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     }
 
     if (!this.interceptResponse(this.context)) {
-      this.context.logger?.debug('skip by response')
+      this.context.logger?.debug({ response: this.context.response }, 'skip by response')
       this.context.skipByResponse = true
       this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage)
       return
     }
 
-    // Send data to trafficante
-    const responseBodyPassthrough = new PassThrough()
-    this.send = this.client.request({
-      path: this.context.options.trafficante.pathSendBody,
-      method: 'POST',
-      headers: {
-        'content-type': this.context.response.headers['content-type'] || 'application/octet-stream',
-        'content-length': (this.context.response.headers['content-length'] ?? '0').toString(),
-        'x-trafficante-labels': JSON.stringify(this.context.labels),
-        'x-request-data': JSON.stringify({
-          url: this.context.request.url,
-          headers: this.context.request.headers
-        }),
-        'x-response-data': JSON.stringify({
-          headers: this.context.response.headers,
-          code: this.context.response.statusCode
-        })
-      },
-      body: responseBodyPassthrough
-    })
-    // TODO trafficante not return 200
-    this.writer = responseBodyPassthrough
+    if (!this.context.skipByRequest) {
+      // Send data to trafficante
+      const responseBodyPassthrough = new PassThrough()
+      this.send = this.client.request({
+        path: this.context.options.trafficante.pathSendBody,
+        method: 'POST',
+        headers: {
+          'content-type': this.context.response.headers['content-type'] || 'application/octet-stream',
+          'content-length': (this.context.response.headers['content-length'] ?? '0').toString(),
+          'x-trafficante-labels': JSON.stringify(this.context.labels),
+          'x-request-data': JSON.stringify({
+            url: this.context.request.url,
+            headers: this.context.request.headers
+          }),
+          'x-response-data': JSON.stringify({
+            headers: this.context.response.headers,
+            code: this.context.response.statusCode
+          })
+        },
+        body: responseBodyPassthrough
+      })
+      // TODO trafficante not return 200
+      this.writer = responseBodyPassthrough
+    }
 
     this.context.hasher.reset()
 
@@ -172,7 +173,9 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     this.context.hasher.update(chunk)
 
-    this.writer.write(chunk)
+    if (!this.context.skipByRequest) {
+      this.writer.write(chunk)
+    }
 
     this.handler.onResponseData?.(controller, chunk)
   }
@@ -183,8 +186,12 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       return
     }
 
-    this.writer.end()
-    await this.send
+    if (!this.context.skipByRequest) {
+      this.writer.end()
+      await this.send
+    }
+
+    // Send response hash to trafficante
 
     this.context.response.hash = this.context.hasher.digest()
 

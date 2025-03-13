@@ -1,16 +1,17 @@
 # undici-trafficante-interceptor
 
-
+p
 
 if ! response content-length, skip
 if trafficante response is err? retry?
+? trailing slash
 ? deploy
 ? github actions
 
 
 TODO
 
-- ! send to trafficante on response change
+- options: headers, status code, methods ...
 - aborts
 - NEXT multi-thread hashing
 
