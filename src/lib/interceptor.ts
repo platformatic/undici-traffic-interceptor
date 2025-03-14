@@ -76,7 +76,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   private interceptRequest: (context: InterceptorContext) => boolean
   private interceptResponse: (context: InterceptorContext) => boolean
 
-  constructor (
+  constructor(
     dispatchOptions: Partial<Dispatcher.DispatchOptions>,
     options: TrafficanteOptions,
     bloomFilter: BloomFilter,
@@ -112,7 +112,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.interceptResponse = options.interceptResponse ?? interceptResponse
   }
 
-  onRequestStart (controller: Dispatcher.DispatchController, context: unknown): void {
+  onRequestStart(controller: Dispatcher.DispatchController, context: unknown): void {
     this.context.request.method = this.context.dispatchOptions.method as Dispatcher.HttpMethod
     this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
     this.context.interceptRequest = this.interceptRequest(this.context)
@@ -138,7 +138,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.handler.onRequestStart?.(controller, context)
   }
 
-  onResponseStart (controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, statusMessage?: string): void {
+  onResponseStart(controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, statusMessage?: string): void {
     this.context.response = {
       statusCode,
       headers
@@ -174,7 +174,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage)
   }
 
-  async onResponseData (controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
+  async onResponseData(controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
     if (!this.context.interceptResponse) {
       this.handler.onResponseData?.(controller, chunk)
       return
@@ -189,7 +189,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.handler.onResponseData?.(controller, chunk)
   }
 
-  async onResponseEnd (controller: Dispatcher.DispatchController, trailers: IncomingHttpHeaders): Promise<void> {
+  async onResponseEnd(controller: Dispatcher.DispatchController, trailers: IncomingHttpHeaders): Promise<void> {
     if (!this.context.interceptResponse) {
       this.handler.onResponseEnd?.(controller, trailers)
       return
@@ -204,6 +204,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.context.response.hash = this.context.hasher.digest()
 
     // No redaction on headers since if there are auth headers, the request/response will be skipped
+    this.context.logger?.debug({ url: this.context.request.url }, 'send meta to trafficante')
     await this.client.request({
       path: this.context.options.trafficante.pathSendMeta,
       method: 'POST',
@@ -230,11 +231,11 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.handler.onResponseEnd?.(controller, trailers)
   }
 
-  onRequestUpgrade (controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, socket: Duplex): void {
+  onRequestUpgrade(controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, socket: Duplex): void {
     this.handler.onRequestUpgrade?.(controller, statusCode, headers, socket)
   }
 
-  async onResponseError (controller: Dispatcher.DispatchController, error: Error): Promise<void> {
+  async onResponseError(controller: Dispatcher.DispatchController, error: Error): Promise<void> {
     this.context.logger?.error('TrafficanteInterceptor onResponseError', error)
 
     // TODO Abort the stream and clean up
@@ -248,7 +249,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 }
 
-export function createTrafficanteInterceptor (options: TrafficanteOptions = defaultTrafficanteOptions): Dispatcher.DispatchInterceptor {
+export function createTrafficanteInterceptor(options: TrafficanteOptions = defaultTrafficanteOptions): Dispatcher.DispatchInterceptor {
   const { logger, ...optionsWithoutLogger } = options
   const validatedOptions: TrafficanteOptions = structuredClone(optionsWithoutLogger)
   // Validate options
@@ -279,8 +280,8 @@ export function createTrafficanteInterceptor (options: TrafficanteOptions = defa
   const bloomFilter = new BloomFilter(validatedOptions.bloomFilter.size, validatedOptions.bloomFilter.errorRate)
   const client = new Client(validatedOptions.trafficante.url)
 
-  return function trafficanteInterceptor (dispatch: Dispatcher['dispatch']): Dispatcher['dispatch'] {
-    return function InterceptedDispatch (
+  return function trafficanteInterceptor(dispatch: Dispatcher['dispatch']): Dispatcher['dispatch'] {
+    return function InterceptedDispatch(
       dispatchOptions: Dispatcher.DispatchOptions,
       handler: Dispatcher.DispatchHandler
     ): boolean {
