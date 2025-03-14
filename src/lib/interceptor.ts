@@ -58,8 +58,8 @@ export type InterceptorContext = {
 
   labels: Record<string, string>
 
-  skipByRequest: boolean | undefined
-  skipByResponse: boolean | undefined
+  interceptRequest: boolean | undefined
+  interceptResponse: boolean | undefined
 }
 
 class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
@@ -104,8 +104,8 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
         headers: {},
       },
 
-      skipByRequest: undefined,
-      skipByResponse: undefined,
+      interceptRequest: undefined,
+      interceptResponse: undefined,
     }
 
     this.interceptRequest = options.interceptRequest ?? interceptRequest
@@ -115,10 +115,10 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   onRequestStart (controller: Dispatcher.DispatchController, context: unknown): void {
     this.context.request.method = this.context.dispatchOptions.method as Dispatcher.HttpMethod
     this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
+    this.context.interceptRequest = this.interceptRequest(this.context)
 
-    if (!this.interceptRequest(this.context)) {
+    if (!this.context.interceptRequest) {
       this.context.logger?.debug({ request: this.context.request }, 'skip by request')
-      this.context.skipByRequest = true
       this.handler.onRequestStart?.(controller, context)
       return
     }
@@ -130,7 +130,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.context.request.hash = this.context.hasher.update(this.context.request.url).digest()
     if (this.bloomFilter.has(this.context.request.hash)) {
       this.context.logger?.debug({ request: this.context.request }, 'skip by bloom filter')
-      this.context.skipByRequest = true
+      this.context.interceptRequest = false
     } else {
       this.bloomFilter.add(this.context.request.hash)
     }
@@ -143,16 +143,17 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       statusCode,
       headers
     }
+    this.context.interceptResponse = this.interceptResponse(this.context)
 
-    if (!this.interceptResponse(this.context)) {
+    if (!this.context.interceptResponse) {
       this.context.logger?.debug({ response: this.context.response }, 'skip by response')
-      this.context.skipByResponse = true
       this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage)
       return
     }
 
-    if (!this.context.skipByRequest) {
+    if (this.context.interceptRequest) {
       // Send data to trafficante
+      // Don's send response body to trafficante when request is intercepted due to request headers or bloom filter
       const responseBodyPassthrough = new PassThrough()
       this.send = this.client.request({
         path: this.context.options.trafficante.pathSendBody,
@@ -174,14 +175,14 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   async onResponseData (controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
-    if (this.context.skipByResponse) {
+    if (!this.context.interceptResponse) {
       this.handler.onResponseData?.(controller, chunk)
       return
     }
 
     this.context.hasher.update(chunk)
 
-    if (!this.context.skipByRequest) {
+    if (this.context.interceptRequest) {
       this.writer.write(chunk)
     }
 
@@ -189,12 +190,12 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   async onResponseEnd (controller: Dispatcher.DispatchController, trailers: IncomingHttpHeaders): Promise<void> {
-    if (this.context.skipByResponse) {
+    if (!this.context.interceptResponse) {
       this.handler.onResponseEnd?.(controller, trailers)
       return
     }
 
-    if (!this.context.skipByRequest) {
+    if (this.context.interceptRequest) {
       this.writer.end()
       await this.send
     }
