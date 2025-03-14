@@ -123,8 +123,8 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       return
     }
 
-    const url = new URL(this.context.dispatchOptions.path as string, this.context.dispatchOptions.origin as string)
-    this.context.request.url = url.host + url.pathname
+    this.context.request.url = (this.context.dispatchOptions.origin as string) + (this.context.dispatchOptions.path as string || '/')
+
     this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
 
     this.context.request.hash = this.context.hasher.update(this.context.request.url).digest()

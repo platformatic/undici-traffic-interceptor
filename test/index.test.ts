@@ -54,7 +54,7 @@ describe('TrafficanteInterceptor', () => {
       waitForLogMessage(trafficante.loggerSpy, (message) => {
         if (message.msg === 'trafficante received body') {
           assert.equal(message.body, '[/dummy response]')
-          assert.equal(message.headers['x-request-url'], `localhost:${app.port}/dummy`)
+          assert.equal(message.headers['x-request-url'], `http://localhost:${app.port}/dummy`)
           return true
         }
         return false
@@ -64,7 +64,7 @@ describe('TrafficanteInterceptor', () => {
           assert.equal(message.body.applicationId, defaultOptions.labels.applicationId)
           assert.equal(message.body.taxonomyId, defaultOptions.labels.taxonomyId)
           assert.ok(typeof message.body.timestamp === 'number')
-          assert.equal(message.body.request.url, `localhost:${app.port}/dummy`)
+          assert.equal(message.body.request.url, `http://localhost:${app.port}/dummy`)
           assert.equal(message.body.request.headers['Content-Type'], 'application/json')
           assert.equal(message.body.request.headers['User-Agent'], 'test-user-agent')
           assert.equal(message.body.response.code, 200)
@@ -166,7 +166,7 @@ describe('TrafficanteInterceptor', () => {
 
         await waitForLogMessage(trafficante.loggerSpy, (message) => {
           if (message.msg === 'trafficante received meta') {
-            assert.equal(message.body.request.url, `localhost:${app.port}${path}`)
+            assert.equal(message.body.request.url, `http://localhost:${app.port}${path}`)
             return message.body.request.headers?.['x-counter'] === i.toString()
           }
           return false
