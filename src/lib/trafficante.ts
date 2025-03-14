@@ -6,8 +6,8 @@ import type { Logger } from 'pino'
 export const INTERCEPT_REQUEST_METHOD_GET = 'GET'
 export const SKIPPING_REQUEST_HEADERS = ['cache-control', 'pragma', 'if-none-match', 'if-modified-since',
   'authorization', 'proxy-authorization']
-export const SKIPPING_RESPONSE_HEADERS = ['etag', 'last-modified', 'expires', 'cache-control']
-export const INTERCEPT_RESPONSE_STATUS_CODES = (code: number) => (code > 199 && code < 300) // TODO review: skip 204
+export const SKIPPING_RESPONSE_HEADERS = ['etag', 'last-modified', 'expires', 'cache-control', 'authorization', 'proxy-authenticate', 'www-authenticate', 'set-cookie']
+export const INTERCEPT_RESPONSE_STATUS_CODES = (code: number) => (code > 199 && code < 300)
 export const SKIPPING_COOKIE_SESSION_IDS = [
   'jsessionid',
   'phpsessid',
@@ -28,7 +28,6 @@ export const SKIPPING_COOKIE_SESSION_IDS = [
   'authtoken',
   'accesstoken',
 ]
-
 export const DEFAULT_BLOOM_FILTER_SIZE = 100_000
 export const DEFAULT_BLOOM_FILTER_ERROR_RATE = 0.1
 export const DEFAULT_MAX_RESPONSE_SIZE = 5 * 1024 * 1024 // 5MB
@@ -69,7 +68,7 @@ export function interceptRequest (context: InterceptorContext): boolean {
     return true
   }
 
-  for (const [key, value] of Object.entries(context.request.headers)) {
+  for (const key of Object.keys(context.request.headers)) {
     const header = key.toLowerCase()
 
     if (context.options.skippingRequestHeaders!.includes(header)) {
@@ -77,7 +76,7 @@ export function interceptRequest (context: InterceptorContext): boolean {
     }
 
     if (header === 'cookie') {
-      const cookies = parseCookie(value as string)
+      const cookies = parseCookie(context.request.headers[key] as string)
       if (Object.keys(cookies).some(id => context.options.skippingCookieSessionIds!.includes(id.toLowerCase()))) {
         return false
       }
@@ -101,7 +100,7 @@ export function interceptResponse (context: InterceptorContext): boolean {
     return true
   }
 
-  for (const [key, value] of Object.entries(context.response.headers)) {
+  for (const key of Object.keys(context.response.headers)) {
     const header = key.toLowerCase()
 
     if (context.options.skippingResponseHeaders!.includes(header)) {
@@ -109,7 +108,7 @@ export function interceptResponse (context: InterceptorContext): boolean {
     }
 
     if (header === 'set-cookie') {
-      const cookies = parseCookie(value as string)
+      const cookies = parseCookie(context.response.headers['set-cookie'] as string)
 
       if (Array.isArray(cookies)) {
         for (const cookie of cookies) {
@@ -123,7 +122,7 @@ export function interceptResponse (context: InterceptorContext): boolean {
         }
       }
     } else if (header === 'content-length') {
-      if (Number(value) > context.options.maxResponseSize) {
+      if (Number(context.response.headers['content-length']) > context.options.maxResponseSize) {
         return false
       }
     }

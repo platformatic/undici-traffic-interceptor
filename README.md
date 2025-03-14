@@ -43,7 +43,7 @@ const agent = new Agent().compose(createTrafficanteInterceptor({
   trafficante: {
     url: 'http://trafficante-server.example.com',
     pathSendBody: '/ingest-body',
-    pathSendMeta: '/ingest-meta'
+    pathSendMeta: '/requests'
   }
 }))
 

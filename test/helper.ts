@@ -4,7 +4,6 @@ import type Stream from 'stream'
 import fastify from 'fastify'
 import pinoTest from 'pino-test'
 import pino from 'pino'
-import EventEmitter from 'events'
 
 export async function createApp ({ t }: { t: TestContext }) {
   const server = fastify()
@@ -46,7 +45,7 @@ export async function createApp ({ t }: { t: TestContext }) {
   }
 }
 
-export async function createTrafficante ({ t, pathSendBody = '/ingest-body', pathSendMeta = '/ingest-meta' }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string }) {
+export async function createTrafficante ({ t, pathSendBody = '/ingest-body', pathSendMeta = '/requests' }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string }) {
   const loggerStream = pinoTest.sink()
   const logger = pino({ level: 'debug' }, loggerStream)
   const loggerSpy = listenLogger(loggerStream, t)
@@ -57,14 +56,15 @@ export async function createTrafficante ({ t, pathSendBody = '/ingest-body', pat
     logger.info({
       body: req.body,
       headers: req.headers
-    }, 'received body')
+    }, 'trafficante received body')
     res.send('OK')
   })
 
-  server.get(pathSendMeta, (req, res) => {
+  server.post(pathSendMeta, (req, res) => {
     logger.info({
-      headers: req.headers
-    }, 'received meta')
+      headers: req.headers,
+      body: req.body // TODO update test, assert
+    }, 'trafficante received meta')
     res.send('OK')
   })
 
@@ -84,17 +84,27 @@ export async function createTrafficante ({ t, pathSendBody = '/ingest-body', pat
   }
 }
 
+type Spy = {
+  buffer: any[],
+  onMessage: (cb: (received: any) => void) => void,
+  reset: () => void,
+  _onMessage: (received: any) => void
+}
 export function listenLogger (loggerStream: Stream.Transform, t: TestContext) {
-  const spy = {
+  const spy: Spy = {
     buffer: [] as any[],
-    events: new EventEmitter(),
+    onMessage: (cb: (received: any) => void) => {
+      spy._onMessage = cb
+    },
     reset: () => {
       spy.buffer.length = 0
-    }
+    },
+    _onMessage: (received: any) => { }
   }
+
   const fn = (received: any) => {
     spy.buffer.push(received)
-    spy.events.emit('data', received)
+    spy._onMessage(received)
   }
 
   loggerStream.on('data', fn)
@@ -106,7 +116,7 @@ export function listenLogger (loggerStream: Stream.Transform, t: TestContext) {
   return spy
 }
 
-export function waitForLogMessage (spy: { buffer: any[], events: EventEmitter }, match: (received: any) => boolean, max = 100): Promise<void> {
+export function waitForLogMessage (spy: Spy, match: (received: any) => boolean, max = 100): Promise<void> {
   return new Promise((resolve, reject) => {
     const fn = (received: any) => {
       if (match(received)) {
@@ -123,6 +133,6 @@ export function waitForLogMessage (spy: { buffer: any[], events: EventEmitter },
       fn(received)
     }
 
-    spy.events.on('data', fn)
+    spy.onMessage(fn)
   })
 }

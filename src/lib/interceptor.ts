@@ -26,7 +26,7 @@ const defaultTrafficanteOptions: TrafficanteOptions = {
   trafficante: {
     url: '',
     pathSendBody: '/ingest-body',
-    pathSendMeta: '/ingest-meta',
+    pathSendMeta: '/requests',
   },
   labels: {},
   skippingRequestHeaders: SKIPPING_REQUEST_HEADERS,
@@ -125,6 +125,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     const url = new URL(this.context.dispatchOptions.path as string, this.context.dispatchOptions.origin as string)
     this.context.request.url = url.host + url.pathname
+    this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
 
     this.context.request.hash = this.context.hasher.update(this.context.request.url).digest()
     if (this.bloomFilter.has(this.context.request.hash)) {
@@ -159,15 +160,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
         headers: {
           'content-type': this.context.response.headers['content-type'] || 'application/octet-stream',
           'content-length': (this.context.response.headers['content-length'] ?? '0').toString(),
-          'x-trafficante-labels': JSON.stringify(this.context.labels),
-          'x-request-data': JSON.stringify({
-            url: this.context.request.url,
-            headers: this.context.request.headers
-          }),
-          'x-response-data': JSON.stringify({
-            headers: this.context.response.headers,
-            code: this.context.response.statusCode
-          })
+          'x-request-url': this.context.request.url,
         },
         body: responseBodyPassthrough
       })
@@ -206,17 +199,29 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       await this.send
     }
 
-    // Send response hash to trafficante
-
+    // Send meta data to trafficante
     this.context.response.hash = this.context.hasher.digest()
 
+    // No redaction on headers since if there are auth headers, the request/response will be skipped
     await this.client.request({
       path: this.context.options.trafficante.pathSendMeta,
-      method: 'GET',
+      method: 'POST',
+      body: JSON.stringify({
+        ...this.context.labels,
+        timestamp: Date.now(), // request timestamp?
+        request: {
+          url: this.context.request.url,
+          headers: this.context.request.headers
+        },
+        response: {
+          code: this.context.response.statusCode,
+          headers: this.context.response.headers,
+          bodyHash: this.context.response.hash.toString(),
+          bodySize: Number(this.context.response.headers['content-length']) || 0
+        }
+      }),
       headers: {
         'content-type': 'application/json',
-        'x-request-url': this.context.request.url,
-        'x-response-hash': this.context.response.hash.toString()
       }
     })
     // TODO trafficante not return 200

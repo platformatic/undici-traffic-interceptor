@@ -19,12 +19,12 @@ const defaultOptions: TrafficanteOptions = {
   trafficante: {
     url: '',
     pathSendBody: '/ingest-body',
-    pathSendMeta: '/ingest-meta'
+    pathSendMeta: '/requests'
   }
 }
 
 describe('TrafficanteInterceptor', () => {
-  test('should intercept request/response and send to trafficante', async (t) => {
+  test('should intercept request/response and send data to trafficante', async (t) => {
     const app = await createApp({ t })
     const trafficante = await createTrafficante({ t })
     const agent = new Agent().compose(createTrafficanteInterceptor({
@@ -51,25 +51,29 @@ describe('TrafficanteInterceptor', () => {
     assert.equal(response.headers['x-request-headers-content-type'], 'application/json')
 
     await Promise.all([
-      waitForLogMessage(trafficante.loggerSpy, (received) => {
-        if (received.msg === 'received body') {
-          return received.body === '[/dummy response]' &&
-            received.headers['x-trafficante-labels'] === '{"applicationId":"app-1","taxonomyId":"tax-1"}' &&
-            received.headers['x-request-data'] === `{"url":"localhost:${app.port}/dummy","headers":{"Content-Type":"application/json","User-Agent":"test-user-agent"}}` &&
-            (() => {
-              const responseData = JSON.parse(received.headers['x-response-data'])
-              return responseData.headers['x-request-headers-host'] === `localhost:${app.port}` &&
-                responseData.headers['content-type'] === 'text/plain; charset=utf-8' &&
-                responseData.headers['content-length'] === '17' &&
-                responseData.code === 200
-            })()
+      waitForLogMessage(trafficante.loggerSpy, (message) => {
+        if (message.msg === 'trafficante received body') {
+          assert.equal(message.body, '[/dummy response]')
+          assert.equal(message.headers['x-request-url'], `localhost:${app.port}/dummy`)
+          return true
         }
         return false
       }),
-      waitForLogMessage(trafficante.loggerSpy, (received) => {
-        return received.msg === 'received meta' &&
-          received.headers['x-request-url'] === `localhost:${app.port}/dummy` &&
-          received.headers['x-response-hash'] === '5034874602790624239'
+      waitForLogMessage(trafficante.loggerSpy, (message) => {
+        if (message.msg === 'trafficante received meta') {
+          assert.equal(message.body.applicationId, defaultOptions.labels.applicationId)
+          assert.equal(message.body.taxonomyId, defaultOptions.labels.taxonomyId)
+          assert.ok(typeof message.body.timestamp === 'number')
+          assert.equal(message.body.request.url, `localhost:${app.port}/dummy`)
+          assert.equal(message.body.request.headers['Content-Type'], 'application/json')
+          assert.equal(message.body.request.headers['User-Agent'], 'test-user-agent')
+          assert.equal(message.body.response.code, 200)
+          assert.equal(message.body.response.headers['content-type'], 'text/plain; charset=utf-8')
+          assert.equal(message.body.response.bodyHash, '5034874602790624239')
+          assert.equal(message.body.response.bodySize, 17)
+          return true
+        }
+        return false
       }),
     ])
   })
@@ -95,9 +99,9 @@ describe('TrafficanteInterceptor', () => {
       'Proxy-Authorization': 'test-proxy-authorization',
     }
 
-    const promises: Promise<void>[] = []
+    const tasks: Promise<void>[] = []
     for (const header of Object.keys(skippingRequestHeaders)) {
-      promises.push((async () => {
+      tasks.push((async () => {
         const response = await request(`${app.host}/dummy`, {
           dispatcher: agent,
           method: 'GET',
@@ -107,16 +111,16 @@ describe('TrafficanteInterceptor', () => {
         assert.equal(response.statusCode, 200)
         assert.equal(await response.body.text(), '[/dummy response]')
 
-        await waitForLogMessage(trafficante.loggerSpy, (received) => {
-          return received.msg === 'skip by request' &&
-            Object.keys(received.request?.headers ?? {}).some(requestHeader => {
+        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+          return message.msg === 'skip by request' &&
+            Object.keys(message.request?.headers ?? {}).some(requestHeader => {
               return requestHeader.toLowerCase() === header.toLowerCase()
             })
         })
       })())
     }
 
-    await Promise.all(promises)
+    await Promise.all(tasks)
   })
 
   test('should not pass request data to bloom filter but only meta, with concurrency', async (t) => {
@@ -143,9 +147,9 @@ describe('TrafficanteInterceptor', () => {
       assert.equal(await response.body.text(), `[${path} response]`)
     }
 
-    const promises: Promise<void>[] = []
+    const tasks: Promise<void>[] = []
     for (let i = 0; i < 10; i++) {
-      promises.push((async () => {
+      tasks.push((async () => {
         const response = await request(`${app.host}${path}`, {
           dispatcher: agent,
           method: 'GET',
@@ -156,20 +160,21 @@ describe('TrafficanteInterceptor', () => {
         assert.equal(response.statusCode, 200)
         assert.equal(await response.body.text(), 'OK')
 
-        await waitForLogMessage(trafficante.loggerSpy, (received) => {
-          return received.msg === 'skip by bloom filter' &&
-            received.request?.headers['x-counter'] === i.toString()
+        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+          return message.msg === 'skip by bloom filter' && message.request?.headers['x-counter'] === i.toString()
         })
 
-        await waitForLogMessage(trafficante.loggerSpy, (received) => {
-          return received.msg === 'received meta' &&
-            received.headers['x-request-url'] === `localhost:${app.port}${path}` &&
-            received.headers['x-response-hash'] === '8770641927759941325'
+        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+          if (message.msg === 'trafficante received meta') {
+            assert.equal(message.body.request.url, `localhost:${app.port}${path}`)
+            return message.body.request.headers?.['x-counter'] === i.toString()
+          }
+          return false
         })
       })())
     }
 
-    await Promise.all(promises)
+    await Promise.all(tasks)
   })
 
   test('should not pass request data to trafficante due to request method, with concurrency', async (t) => {
@@ -192,9 +197,9 @@ describe('TrafficanteInterceptor', () => {
       'OPTIONS'
     ]
 
-    const promises: Promise<void>[] = []
+    const tasks: Promise<void>[] = []
     for (const method of skippingRequestMethods) {
-      promises.push((async () => {
+      tasks.push((async () => {
         const response = await request(`${app.host}/method`, {
           dispatcher: agent,
           method,
@@ -202,14 +207,14 @@ describe('TrafficanteInterceptor', () => {
 
         assert.equal(response.statusCode, 200)
 
-        await waitForLogMessage(trafficante.loggerSpy, (received) => {
-          return received.msg === 'skip by request' &&
-            received.request?.method === method
+        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+          return message.msg === 'skip by request' &&
+            message.request?.method === method
         })
       })())
     }
 
-    await Promise.all(promises)
+    await Promise.all(tasks)
   })
 
   test('should pass request data to trafficante on missing or empty request headers', async (t) => {
@@ -246,7 +251,7 @@ describe('TrafficanteInterceptor', () => {
     }
   })
 
-  test('should pass request data to trafficante on cookies', async (t) => {
+  test('should pass request data to trafficante on cookies that does not contain known auth tokens', async (t) => {
     const app = await createApp({ t })
     const trafficante = await createTrafficante({ t })
     const agent = new Agent().compose(createTrafficanteInterceptor({
@@ -258,18 +263,20 @@ describe('TrafficanteInterceptor', () => {
       logger: trafficante.logger
     }))
 
-    {
-      const response = await request(`${app.host}/dummy`, {
-        dispatcher: agent,
-        method: 'GET',
-        headers: {
-          Cookie: 'test-cookie'
-        }
-      })
+    const response = await request(`${app.host}/dummy`, {
+      dispatcher: agent,
+      method: 'GET',
+      headers: {
+        Cookie: 'test-cookie'
+      }
+    })
 
-      assert.equal(response.statusCode, 200)
-      assert.equal(await response.body.text(), '[/dummy response]')
-    }
+    assert.equal(response.statusCode, 200)
+    assert.equal(await response.body.text(), '[/dummy response]')
+
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      return message.msg === 'trafficante received meta'
+    })
   })
 
   test('should not pass request data to trafficante due to request cookies with known auth tokens, with concurrency', async (t) => {
@@ -294,9 +301,9 @@ describe('TrafficanteInterceptor', () => {
       'session=abc;something=else'
     ]
 
-    const promises: Promise<void>[] = []
+    const tasks: Promise<void>[] = []
     for (const cookie of skippingCookies) {
-      promises.push((async () => {
+      tasks.push((async () => {
         const response = await request(`${app.host}/dummy`, {
           dispatcher: agent,
           method: 'GET',
@@ -308,14 +315,14 @@ describe('TrafficanteInterceptor', () => {
         assert.equal(response.statusCode, 200)
         assert.equal(await response.body.text(), '[/dummy response]')
 
-        await waitForLogMessage(trafficante.loggerSpy, (received) => {
-          return received.msg === 'skip by request' &&
-            received.request?.headers['Cookie'] === cookie
+        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+          return message.msg === 'skip by request' &&
+            message.request?.headers?.['Cookie']?.includes(cookie)
         })
       })())
     }
 
-    await Promise.all(promises)
+    await Promise.all(tasks)
   })
 
   test('should not pass response data to trafficante due to response status code', async (t) => {
@@ -351,10 +358,10 @@ describe('TrafficanteInterceptor', () => {
       })
 
       assert.ok(!trafficante.loggerSpy.buffer.some(log => {
-        return log.msg === 'received body'
+        return log.msg === 'trafficante received body'
       }), 'trafficante must not receive body')
       assert.ok(!trafficante.loggerSpy.buffer.some(log => {
-        return log.msg === 'received meta'
+        return log.msg === 'trafficante received meta'
       }), 'trafficante must not receive meta')
 
       trafficante.loggerSpy.reset()
@@ -380,23 +387,23 @@ describe('TrafficanteInterceptor', () => {
       Expires: '10 May 2025 10:00:00 GMT'
     }
 
-    const promises: Promise<void>[] = []
+    const tasks: Promise<void>[] = []
     for (const header of Object.keys(skippingResponseHeaders)) {
-      promises.push((async () => {
+      tasks.push((async () => {
         await request(`${app.host}/echo`, {
           dispatcher: agent,
           method: 'GET',
           query: { responseHeader: header, responseHeaderValue: skippingResponseHeaders[header] }
         })
 
-        await waitForLogMessage(trafficante.loggerSpy, (received) => {
-          return received.msg === 'skip by response' &&
-            received.response?.headers[header.toLowerCase()] === skippingResponseHeaders[header]
+        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+          return message.msg === 'skip by response' &&
+            message.response?.headers[header.toLowerCase()] === skippingResponseHeaders[header]
         })
       })())
     }
 
-    await Promise.all(promises)
+    await Promise.all(tasks)
   })
 
   test('should not pass response data to trafficante due to response size', async (t) => {
@@ -418,8 +425,8 @@ describe('TrafficanteInterceptor', () => {
       query: { responseCode: 200, responseBody: 'something bigger than 10 bytes' }
     })
 
-    await waitForLogMessage(trafficante.loggerSpy, (received) => {
-      return received.msg === 'skip by response'
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      return message.msg === 'skip by response'
     })
   })
 
@@ -445,22 +452,22 @@ describe('TrafficanteInterceptor', () => {
       'X-CSRF-TOKEN=707;something=else'
     ]
 
-    const promises: Promise<void>[] = []
+    const tasks: Promise<void>[] = []
     for (const cookie of skippingCookies) {
-      promises.push((async () => {
+      tasks.push((async () => {
         await request(`${app.host}/echo`, {
           dispatcher: agent,
           method: 'GET',
           query: { responseHeader: 'Set-Cookie', responseHeaderValue: cookie }
         })
 
-        await waitForLogMessage(trafficante.loggerSpy, (received) => {
-          return received.msg === 'skip by response' &&
-            received.response?.headers['set-cookie'] === cookie
+        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+          return message.msg === 'skip by response' &&
+            message.response?.headers?.['set-cookie']?.includes(cookie)
         })
       })())
     }
 
-    await Promise.all(promises)
+    await Promise.all(tasks)
   })
 })
