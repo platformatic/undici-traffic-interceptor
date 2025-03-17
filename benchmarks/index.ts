@@ -1,9 +1,14 @@
+import path from 'node:path'
+import url from 'node:url'
+import fs from 'node:fs/promises'
 import { Agent, request, Dispatcher } from 'undici'
 import { createTrafficanteInterceptor } from '../src/index.ts'
 import { createTargetApp } from './target-app.ts'
 import { createTrafficanteApp } from './trafficante-app.ts'
 import { cases } from './cases.ts'
 import { pino } from 'pino'
+
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 
 const TARGET_PORT = 3000
 const TRAFFICANTE_PORT = 3001
@@ -169,8 +174,8 @@ async function runBenchmark() {
   const comparison = compareStats(Object.keys(withInterceptorStats), withInterceptorStats, 'With Interceptor', noInterceptorStats, 'No Interceptor')
   console.log(JSON.stringify(comparison, null, 2))
 
-  const fs = await import('node:fs/promises')
-  await fs.writeFile('result/data.json', JSON.stringify(comparison, null, 2))
+  await fs.mkdir(path.join(__dirname,  '/result'), { recursive: true })
+  await fs.writeFile(path.join(__dirname,  '/result', 'data.json'), JSON.stringify(comparison, null, 2))
   console.log('\nBenchmark results written')
 
   // Get collected requests data
