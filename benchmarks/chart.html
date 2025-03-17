@@ -22,22 +22,32 @@
     </style>
 </head>
 <body>
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+        <label for="metricSelect">Show metric:</label>
+        <select id="metricSelect" style="padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+            <option value="all">All (min/avg/max)</option>
+            <option value="min">Minimum</option>
+            <option value="avg">Average</option>
+            <option value="max">Maximum</option>
+        </select>
+    </div>
     <div class="chart-container">
         <canvas id="benchmarkChart"></canvas>
     </div>
 
     <script>
-        async function loadData() {
-            const response = await fetch('result/data.json');
-            const data = await response.json();
-            
-            // Process the data
+        let globalChart = null;
+        let globalData = null;
+
+        function createChart(data, selectedMetric = 'all') {
+            if (globalChart) {
+                globalChart.destroy();
+            }
+
             const testCases = Object.entries(data)
-                .filter(([key]) => !key.startsWith('diff')) // Exclude total and diff entries
+                .filter(([key]) => !key.startsWith('diff'))
                 .map(([key, value]) => {
-                    // Get the comparison keys (e.g., "With Interceptor", "No Interceptor")
                     const comparisonKeys = Object.keys(value).filter(k => !k.startsWith('diff'));
-                    
                     return {
                         name: key,
                         data: comparisonKeys.reduce((acc, compKey) => {
@@ -47,10 +57,9 @@
                     };
                 });
 
-            // Create datasets dynamically
             const datasets = [];
             const comparisonKeys = Object.keys(testCases[0].data);
-            const metrics = ['min', 'avg', 'max'];
+            const metrics = selectedMetric === 'all' ? ['min', 'avg', 'max'] : [selectedMetric];
             const colors = {
                 [comparisonKeys[0]]: [255, 99, 132],
                 [comparisonKeys[1]]: [54, 162, 235]
@@ -72,7 +81,7 @@
             });
 
             const ctx = document.getElementById('benchmarkChart').getContext('2d');
-            new Chart(ctx, {
+            globalChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: testCases.map(tc => tc.name),
@@ -120,6 +129,16 @@
                         }
                     }
                 }
+            });
+        }
+
+        async function loadData() {
+            const response = await fetch('result/data.json');
+            globalData = await response.json();
+            createChart(globalData);
+
+            document.getElementById('metricSelect').addEventListener('change', (e) => {
+                createChart(globalData, e.target.value);
             });
         }
 
