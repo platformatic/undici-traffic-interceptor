@@ -121,10 +121,8 @@ export function interceptResponse (context: InterceptorContext): boolean {
           return false
         }
       }
-    } else if (header === 'content-length') {
-      if (Number(context.response.headers['content-length']) > context.options.maxResponseSize) {
-        return false
-      }
+    } else if (header === 'content-length' && Number(context.response.headers['content-length']) > context.options.maxResponseSize) {
+      return false
     }
   }
 
