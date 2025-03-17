@@ -44,7 +44,12 @@ export class BloomFilter {
    */
   has (hash: bigint): boolean {
     const positions = this.getPositions(hash)
-    return positions.every(position => this.getBit(position))
+    for (let i = 0; i < positions.length; i++) {
+      if (!this.getBit(positions[i])) {
+        return false
+      }
+    }
+    return true
   }
 
   /**

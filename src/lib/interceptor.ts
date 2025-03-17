@@ -91,7 +91,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.context = {
       dispatchOptions,
       options,
-      hasher: xxh3.Xxh3.withSeed(), // TODO seed option?
+      hasher: xxh3.Xxh3.withSeed(),
       logger: options.logger,
       labels: options.labels ?? {},
 
