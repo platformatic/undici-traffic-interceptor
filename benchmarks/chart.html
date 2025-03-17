@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Benchmark Results</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background: #f5f5f5;
+        }
+        .chart-container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            min-height: 600px;
+            margin-bottom: 40px;
+        }
+    </style>
+</head>
+<body>
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+        <label for="metricSelect">Show metric:</label>
+        <select id="metricSelect" style="padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+            <option value="all">All (min/avg/max)</option>
+            <option value="min">Minimum</option>
+            <option value="avg">Average</option>
+            <option value="max">Maximum</option>
+        </select>
+    </div>
+    <div class="chart-container">
+        <canvas id="benchmarkChart"></canvas>
+    </div>
+
+    <script>
+        let globalChart = null;
+        let globalData = null;
+
+        function createChart(data, selectedMetric = 'all') {
+            if (globalChart) {
+                globalChart.destroy();
+            }
+
+            const testCases = Object.entries(data)
+                .filter(([key]) => !key.startsWith('diff'))
+                .map(([key, value]) => {
+                    const comparisonKeys = Object.keys(value).filter(k => !k.startsWith('diff'));
+                    return {
+                        name: key,
+                        data: comparisonKeys.reduce((acc, compKey) => {
+                            acc[compKey] = value[compKey].responseTime;
+                            return acc;
+                        }, {})
+                    };
+                });
+
+            const datasets = [];
+            const comparisonKeys = Object.keys(testCases[0].data);
+            const metrics = selectedMetric === 'all' ? ['min', 'avg', 'max'] : [selectedMetric];
+            const colors = {
+                [comparisonKeys[0]]: [255, 99, 132],
+                [comparisonKeys[1]]: [54, 162, 235]
+            };
+
+            comparisonKeys.forEach((compKey, index) => {
+                const [r, g, b] = colors[compKey] || [100, 100, 100];
+                
+                metrics.forEach((metric, opacityIndex) => {
+                    datasets.push({
+                        label: `${compKey} - ${metric}`,
+                        data: testCases.map(tc => parseFloat(tc.data[compKey][metric])),
+                        backgroundColor: `rgba(${r}, ${g}, ${b}, ${0.3 + (opacityIndex * 0.2)})`,
+                        borderColor: `rgba(${r}, ${g}, ${b}, 1)`,
+                        borderWidth: 1,
+                        stack: compKey
+                    });
+                });
+            });
+
+            const ctx = document.getElementById('benchmarkChart').getContext('2d');
+            globalChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: testCases.map(tc => tc.name),
+                    datasets
+                },
+                options: {
+                    responsive: true,
+                    interaction: {
+                        intersect: false,
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Response Time Comparison by Test Case (ms)',
+                            font: {
+                                size: 16
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.dataset.label || '';
+                                    const value = context.parsed.y.toFixed(2);
+                                    return `${label}: ${value}ms`;
+                                }
+                            }
+                        },
+                        legend: {
+                            position: 'bottom'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Time (ms)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function loadData() {
+            const response = await fetch('result/data.json');
+            globalData = await response.json();
+            createChart(globalData);
+
+            document.getElementById('metricSelect').addEventListener('change', (e) => {
+                createChart(globalData, e.target.value);
+            });
+        }
+
+        loadData().catch(console.error);
+    </script>
+</body>
+</html>

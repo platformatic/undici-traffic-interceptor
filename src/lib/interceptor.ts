@@ -45,6 +45,7 @@ export type InterceptorContext = {
   request: {
     method: Dispatcher.HttpMethod
     headers: IncomingHttpHeaders
+    timestamp: number
     url?: string // domain name + path / no query string
     hash?: bigint // hash of request.url
   }
@@ -64,6 +65,7 @@ export type InterceptorContext = {
 
 class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   private handler: Dispatcher.DispatchHandler
+  private aborted = false
 
   private bloomFilter!: BloomFilter
   private client!: Client
@@ -71,8 +73,8 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   private context!: InterceptorContext
 
   private send!: Promise<Dispatcher.ResponseData<null>>
-  private writer!: PassThrough
-
+  private writer: PassThrough | undefined
+  private bodySendController: AbortController | undefined
   private interceptRequest: (context: InterceptorContext) => boolean
   private interceptResponse: (context: InterceptorContext) => boolean
 
@@ -98,6 +100,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       request: {
         method: '',
         headers: {},
+        timestamp: Date.now(),
       },
       response: {
         statusCode: -1,
@@ -112,7 +115,25 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.interceptResponse = options.interceptResponse ?? interceptResponse
   }
 
+  onRequestAbort(reason: Error) {
+    this.context.logger?.error({ reason }, '\n\n\n !!! TrafficanteInterceptor abort')
+
+    if (this.writer && !this.writer.destroyed) {
+      this.writer.destroy()
+    }
+
+    if (this.bodySendController) {
+      this.bodySendController.abort()
+    }
+
+    this.aborted = true
+  }
+
   onRequestStart(controller: Dispatcher.DispatchController, context: unknown): void {
+    this.context.logger?.debug('TrafficanteInterceptor onRequestStart')
+
+    controller.abort = this.onRequestAbort.bind(this)
+
     this.context.request.method = this.context.dispatchOptions.method as Dispatcher.HttpMethod
     this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
     this.context.interceptRequest = this.interceptRequest(this.context)
@@ -139,6 +160,8 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onResponseStart(controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, statusMessage?: string): void {
+    this.context.logger?.debug('TrafficanteInterceptor onResponseStart')
+
     this.context.response = {
       statusCode,
       headers
@@ -154,7 +177,13 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     if (this.context.interceptRequest) {
       // Send data to trafficante
       // Don's send response body to trafficante when request is intercepted due to request headers or bloom filter
-      const responseBodyPassthrough = new PassThrough()
+      this.writer = new PassThrough()
+      this.bodySendController = new AbortController()
+      this.writer.on('error', (error) => {
+        this.context.logger?.error('TrafficanteInterceptor response body passthrough error', error)
+        this.writer?.destroy(error as Error)
+      })
+
       this.send = this.client.request({
         path: this.context.options.trafficante.pathSendBody,
         method: 'POST',
@@ -163,10 +192,13 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
           'content-length': (this.context.response.headers['content-length'] ?? '0').toString(),
           'x-request-url': this.context.request.url,
         },
-        body: responseBodyPassthrough
+        body: this.writer,
+        signal: this.bodySendController.signal
       })
-      // TODO trafficante not return 200
-      this.writer = responseBodyPassthrough
+
+      this.send.catch((err) => {
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending response body to trafficante #1')
+      })
     }
 
     this.context.hasher.reset()
@@ -175,29 +207,47 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   async onResponseData(controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
-    if (!this.context.interceptResponse) {
+    this.context.logger?.debug('TrafficanteInterceptor onResponseData')
+
+    if (!this.context.interceptResponse || this.aborted) {
       this.handler.onResponseData?.(controller, chunk)
       return
     }
 
     this.context.hasher.update(chunk)
 
-    if (this.context.interceptRequest) {
-      this.writer.write(chunk)
+    if (this.context.interceptRequest && this.writer && !this.writer.destroyed) {
+      try {
+        if (!this.writer.write(chunk)) {
+          await new Promise(resolve => this.writer?.once('drain', resolve))
+        }
+      } catch (err) {
+        this.context.logger?.error({ err }, 'Error writing to response body stream')
+        this.writer?.destroy(err as Error)
+      }
     }
 
     this.handler.onResponseData?.(controller, chunk)
   }
 
   async onResponseEnd(controller: Dispatcher.DispatchController, trailers: IncomingHttpHeaders): Promise<void> {
-    if (!this.context.interceptResponse) {
+    this.context.logger?.debug('TrafficanteInterceptor onResponseEnd')
+
+    if (!this.context.interceptResponse || this.aborted) {
       this.handler.onResponseEnd?.(controller, trailers)
       return
     }
 
-    if (this.context.interceptRequest) {
-      this.writer.end()
-      await this.send
+    if (this.context.interceptRequest && this.writer && !this.writer.destroyed) {
+      try {
+        this.writer.end()
+        const response = await this.send
+        if (response.statusCode !== 200) {
+          this.context.logger?.error({ response }, 'TrafficanteInterceptor error finalizing response body send')
+        }
+      } catch (err) {
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error finalizing response body send')
+      }
     }
 
     // Send meta data to trafficante
@@ -205,47 +255,59 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     // No redaction on headers since if there are auth headers, the request/response will be skipped
     this.context.logger?.debug({ url: this.context.request.url }, 'send meta to trafficante')
-    await this.client.request({
-      path: this.context.options.trafficante.pathSendMeta,
-      method: 'POST',
-      body: JSON.stringify({
-        ...this.context.labels,
-        timestamp: Date.now(), // request timestamp?
-        request: {
-          url: this.context.request.url,
-          headers: this.context.request.headers
-        },
-        response: {
-          code: this.context.response.statusCode,
-          headers: this.context.response.headers,
-          bodyHash: this.context.response.hash.toString(),
-          bodySize: Number(this.context.response.headers['content-length']) || 0
+    try {
+      await this.client.request({
+        path: this.context.options.trafficante.pathSendMeta,
+        method: 'POST',
+        body: JSON.stringify({
+          ...this.context.labels,
+          timestamp: this.context.request.timestamp,
+          request: {
+            url: this.context.request.url,
+            headers: this.context.request.headers
+          },
+          response: {
+            code: this.context.response.statusCode,
+            headers: this.context.response.headers,
+            bodyHash: this.context.response.hash.toString(),
+            bodySize: Number(this.context.response.headers['content-length']) || 0
+          }
+        }),
+        headers: {
+          'content-type': 'application/json',
         }
-      }),
-      headers: {
-        'content-type': 'application/json',
-      }
-    })
-    // TODO trafficante not return 200
+      })
+    } catch (err) {
+      this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending meta to trafficante')
+    }
 
     this.handler.onResponseEnd?.(controller, trailers)
   }
 
   onRequestUpgrade(controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, socket: Duplex): void {
+    this.context.logger?.debug('TrafficanteInterceptor onRequestUpgrade')
+
     this.handler.onRequestUpgrade?.(controller, statusCode, headers, socket)
   }
 
-  async onResponseError(controller: Dispatcher.DispatchController, error: Error): Promise<void> {
-    this.context.logger?.error('TrafficanteInterceptor onResponseError', error)
+  async onResponseError(controller: Dispatcher.DispatchController, err: Error): Promise<void> {
+    this.context.logger?.error({ err }, 'TrafficanteInterceptor onResponseError')
 
-    // TODO Abort the stream and clean up
-    // this.writer.destroy(error)
-    // const response = await this.send
-    // if (response.body) {
-    //   await (response.body as any).cancel()
-    // }
+    // Cleanup streams and abort pending requests
+    if (this.writer && !this.writer.destroyed) {
+      this.writer.destroy(err)
+    }
 
-    this.handler.onResponseError?.(controller, error)
+    if (this.send) {
+      this.send.catch((err) => {
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending response body to trafficante #2')
+        if (this.writer && !this.writer.destroyed) {
+          this.writer.destroy(err)
+        }
+      })
+    }
+
+    this.handler.onResponseError?.(controller, err)
   }
 }
 

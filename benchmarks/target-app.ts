@@ -1,25 +1,25 @@
 import fastify from 'fastify'
-import { calls } from './calls.ts'
+import { cases } from './cases.ts'
 
-export async function createTargetApp(port = 3000) {
+export async function createTargetApp (port = 3000) {
   const server = fastify()
 
   // Keep track of response indexes for each path
   const responseIndexes = new Map<string, number>()
 
   // Register each call pattern
-  for (const call of calls) {
+  for (const c of cases) {
     server.route({
-      method: call.request.method,
-      url: call.request.path,
+      method: c.request.method,
+      url: c.request.path,
       handler: async (request, reply) => {
         // Get next response in sequence
-        const key = `${call.request.method}:${call.request.path}`
+        const key = `${c.request.method}:${c.request.path}`
         const currentIndex = responseIndexes.get(key) || 0
-        const response = call.responses[currentIndex]
-        
+        const response = c.responses[currentIndex]
+
         // Update index for next request
-        responseIndexes.set(key, (currentIndex + 1) % call.responses.length)
+        responseIndexes.set(key, (currentIndex + 1) % c.responses.length)
 
         // Set response code
         reply.status(response.code)
@@ -38,5 +38,12 @@ export async function createTargetApp(port = 3000) {
   await server.listen({ port, host: '0.0.0.0' })
   console.log(`Target app listening at http://localhost:${port}`)
 
-  return server
+  return {
+    server,
+    async close () {
+      console.log('targetApp closing ***')
+      await server.close()
+    }
+  }
 }
+

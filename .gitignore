@@ -3,3 +3,5 @@ dist/
 coverage/
 .nyc_output/
 pnpm-lock.yaml
+
+benchmarks/result/

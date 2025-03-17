@@ -1,6 +1,6 @@
 import fastify from 'fastify'
 
-export async function createTrafficanteApp(port = 3001) {
+export async function createTrafficanteApp (port = 3001) {
   const server = fastify()
 
   const collect = {
@@ -9,13 +9,13 @@ export async function createTrafficanteApp(port = 3001) {
   }
 
   server.post('/ingest-body', (req, reply) => {
-    collect.body ++
+    collect.body++
 
     reply.send('OK')
   })
 
   server.post('/requests', (req, reply) => {
-    collect.meta ++
+    collect.meta++
 
     // console.log('req.body')
     // console.log(req.body)
@@ -36,6 +36,15 @@ export async function createTrafficanteApp(port = 3001) {
 
   return {
     server,
-    url: `http://localhost:${port}`
+    url: `http://localhost:${port}`,
+    async close () {
+      process.on('exit', async () => {
+        // Get collected requests data
+        console.log('\nCollected Requests:')
+        console.log('==================')
+        console.log(JSON.stringify(collect, null, 2))
+      })
+      await server.close()
+    }
   }
 }

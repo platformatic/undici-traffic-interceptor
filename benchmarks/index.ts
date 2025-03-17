@@ -1,159 +1,143 @@
+import path from 'node:path'
+import url from 'node:url'
+import fs from 'node:fs/promises'
 import { Agent, request, Dispatcher } from 'undici'
-import { createTrafficanteInterceptor, type TrafficanteOptions } from '../src/index.ts'
+import { createTrafficanteInterceptor } from '../src/index.ts'
 import { createTargetApp } from './target-app.ts'
 import { createTrafficanteApp } from './trafficante-app.ts'
-import { calls } from './calls.ts'
-import pino from 'pino'
+import { cases } from './cases.ts'
+import { pino } from 'pino'
+
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 
 const TARGET_PORT = 3000
 const TRAFFICANTE_PORT = 3001
-const TOTAL_REQUESTS = 100
-const CONCURRENT_REQUESTS = 100
+const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 500
+const CONCURRENCY = process.env.CONCURRENCY ? parseInt(process.env.CONCURRENCY) : 10 // TODO!
 
 interface RequestMetrics {
   method: string
-  path: string
   statusCode: number
   responseTime: number
 }
 
 interface BenchmarkStats {
   requestCount: number
-  successCount: number
-  errorCount: number
   responseTime: {
     min: string
     max: string
     avg: string
   }
-  byMethod: Array<{
-    method: string
-    count: number
-    avgTime: string
-  }>
 }
 
-function calculateStats(metrics: RequestMetrics[]): BenchmarkStats {
-  const times = metrics.map(m => m.responseTime)
-  const min = Math.min(...times)
-  const max = Math.max(...times)
-  const avg = times.reduce((a, b) => a + b, 0) / times.length
+function calculateStats (metrics: Record<string, RequestMetrics[]>): Record<string, BenchmarkStats> {
+  const result: Record<string, BenchmarkStats> = {}
+  for (const label in metrics) {
+    const times = metrics[label].map(m => m.responseTime)
+    const min = Math.min(...times)
+    const max = Math.max(...times)
+    const avg = times.reduce((a, b) => a + b, 0) / times.length
 
-  const successCount = metrics.filter(m => m.statusCode < 400).length
-  const errorCount = metrics.filter(m => m.statusCode >= 400).length
-
-  return {
-    requestCount: metrics.length,
-    successCount,
-    errorCount,
-    responseTime: {
-      min: min.toFixed(2),
-      max: max.toFixed(2),
-      avg: avg.toFixed(2)
-    },
-    byMethod: Array.from(new Set(metrics.map(m => m.method))).map(method => ({
-      method,
-      count: metrics.filter(m => m.method === method).length,
-      avgTime: (metrics
-        .filter(m => m.method === method)
-        .reduce((a, b) => a + b.responseTime, 0) /
-        metrics.filter(m => m.method === method).length
-      ).toFixed(2)
-    }))
+    result[label] = {
+      requestCount: metrics[label].length,
+      responseTime: {
+        min: min.toFixed(2),
+        max: max.toFixed(2),
+        avg: avg.toFixed(2)
+      }
+    }
   }
+
+  result.total = {
+    requestCount: Object.values(result).reduce((a, b) => a + b.requestCount, 0),
+    responseTime: {
+      min: Math.min(...Object.values(result).map(r => parseFloat(r.responseTime.min))),
+      max: Math.max(...Object.values(result).map(r => parseFloat(r.responseTime.max))),
+      avg: Object.values(result).reduce((a, b) => a + parseFloat(b.responseTime.avg), 0) / Object.values(result).length
+    }
+  }
+
+  return result
 }
 
-function calculatePercentageDiff(newValue: number, baseValue: number): string {
+function calculatePercentageDiff (newValue: number, baseValue: number): string {
   const diff = ((newValue - baseValue) / baseValue) * 100
   return `${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%`
 }
 
-function compareStats(withInterceptor: BenchmarkStats, withoutInterceptor: BenchmarkStats) {
-  const percentageDiff = {
-    responseTime: {
-      min: calculatePercentageDiff(
-        parseFloat(withInterceptor.responseTime.min),
-        parseFloat(withoutInterceptor.responseTime.min)
-      ),
-      max: calculatePercentageDiff(
-        parseFloat(withInterceptor.responseTime.max),
-        parseFloat(withoutInterceptor.responseTime.max)
-      ),
-      avg: calculatePercentageDiff(
-        parseFloat(withInterceptor.responseTime.avg),
-        parseFloat(withoutInterceptor.responseTime.avg)
-      )
-    },
-    byMethod: withInterceptor.byMethod.map(methodStats => {
-      const baseMethodStats = withoutInterceptor.byMethod.find(m => m.method === methodStats.method)
-      return {
-        method: methodStats.method,
-        avgTimeDiff: baseMethodStats
-          ? calculatePercentageDiff(
-            parseFloat(methodStats.avgTime),
-            parseFloat(baseMethodStats.avgTime)
-          )
-          : 'N/A'
+function compareStats (labels: string[], a: Record<string, BenchmarkStats>, labelA: string, b: Record<string, BenchmarkStats>, labelB: string) {
+  const result = {}
+  for (const label of labels) {
+    result[label] = {
+      [labelA]: a[label],
+      [labelB]: b[label],
+      [`diff ${labelA} - ${labelB}`]: {
+        min: calculatePercentageDiff(
+          parseFloat(a[label].responseTime.min),
+          parseFloat(b[label].responseTime.min)
+        ),
+        max: calculatePercentageDiff(
+          parseFloat(a[label].responseTime.max),
+          parseFloat(b[label].responseTime.max)
+        ),
+        avg: calculatePercentageDiff(
+          parseFloat(a[label].responseTime.avg),
+          parseFloat(b[label].responseTime.avg)
+        )
       }
-    })
+    }
   }
 
-  return {
-    withInterceptor,
-    withoutInterceptor,
-    percentageDifference: percentageDiff
-  }
+  return result
 }
 
-async function makeRequests(agent: Dispatcher, label: string): Promise<BenchmarkStats> {
+async function makeRequests (agent: Dispatcher, label: string): Promise<Record<string, BenchmarkStats>> {
   console.log(`\nRunning benchmark: ${label}`)
-  const metrics: RequestMetrics[] = []
-  let callIndex = 0
+  const metrics: Record<string, RequestMetrics[]> = {}
 
-  for (let i = 0; i < TOTAL_REQUESTS; i += CONCURRENT_REQUESTS) {
-    const tasks = []
-    for (let j = 0; j < CONCURRENT_REQUESTS; j++) {
-      const call = calls[callIndex % calls.length]
-      callIndex++
+  for (const c of cases) {
+    console.log(`\n\n\n ******************* \nRunning case: ${c.label}`)
+    metrics[c.label] = []
+    for (let i = 0; i < REQ_PER_CASE; i += CONCURRENCY) {
+      const tasks = []
+      for (let j = 0; j < CONCURRENCY; j++) {
+        tasks.push((async () => {
+          const startTime = process.hrtime()
 
-      tasks.push((async () => {
-        const startTime = process.hrtime()
+          try {
+            const response = await request(`http://localhost:${TARGET_PORT}${c.request.path}`, {
+              dispatcher: agent,
+              method: c.request.method,
+              headers: c.request.headers
+            })
 
-        try {
-          const response = await request(`http://localhost:${TARGET_PORT}${call.request.path}`, {
-            dispatcher: agent,
-            method: call.request.method,
-            headers: call.request.headers
-          })
+            await response.body.dump()
 
-          const [seconds, nanoseconds] = process.hrtime(startTime)
-          const responseTime = seconds * 1000 + nanoseconds / 1000000 // Convert to milliseconds
+            const [seconds, nanoseconds] = process.hrtime(startTime)
+            const responseTime = seconds * 1000 + nanoseconds / 1000000 // Convert to milliseconds
 
-          metrics.push({
-            method: call.request.method,
-            path: call.request.path,
-            statusCode: response.statusCode,
-            responseTime
-          })
+            metrics[c.label].push({
+              method: c.request.method,
+              statusCode: response.statusCode,
+              responseTime
+            })
 
-          // console.log(`[${call.request.method}] ${call.request.path} - Status: ${response.statusCode} - Time: ${responseTime.toFixed(2)}ms`)
-        } catch (error) {
-          if (error instanceof Error) {
-            console.error(`Error making request: ${error.message}`)
-          } else {
-            console.error('Unknown error making request')
+            // console.log(`[${call.request.method}] ${call.request.path} - Status: ${response.statusCode} - Time: ${responseTime.toFixed(2)}ms`)
+          } catch (error) {
+            console.error('Unknown error making request', error)
           }
-        }
-      })())
+        })())
+      }
+      await Promise.all(tasks)
+      console.log(`${i} out of ${REQ_PER_CASE}`)
+      break
     }
-    await Promise.all(tasks)
-    console.log(`${i} out of ${TOTAL_REQUESTS}`)
   }
 
   return calculateStats(metrics)
 }
 
-async function runBenchmark() {
+async function runBenchmark () {
   console.log('Starting target and trafficante apps...')
   const targetApp = await createTargetApp(TARGET_PORT)
   const trafficante = await createTrafficanteApp(TRAFFICANTE_PORT)
@@ -180,31 +164,33 @@ async function runBenchmark() {
   }))
 
   // Run benchmarks
-  const withoutInterceptorStats = await makeRequests(baseAgent, 'Without Interceptor')
+  const noInterceptorStats = await makeRequests(baseAgent, 'No Interceptor')
   const withInterceptorStats = await makeRequests(interceptorAgent, 'With Interceptor')
 
   // Compare and display results
   console.log('\nBenchmark Comparison:')
   console.log('====================')
-  const comparison = compareStats(withInterceptorStats, withoutInterceptorStats)
+  const comparison = compareStats(Object.keys(withInterceptorStats), withInterceptorStats, 'With Interceptor', noInterceptorStats, 'No Interceptor')
   console.log(JSON.stringify(comparison, null, 2))
 
-  await new Promise(resolve => setTimeout(resolve, 3_000))
+  await fs.mkdir(path.join(__dirname, '/result'), { recursive: true })
+  await fs.writeFile(path.join(__dirname, '/result', 'data.json'), JSON.stringify(comparison, null, 2))
+  console.log('\nBenchmark results written')
 
-  // Get collected requests data
-  console.log('\nCollected Requests:')
-  console.log('==================')
-  const collectedResponse = await request(`${trafficante.url}/collected`)
-  const collected = await collectedResponse.body.json()
-  console.log(JSON.stringify(collected, null, 2))
-
-  // Cleanup
+  // Cleanup with graceful termination
   await targetApp.close()
-  await trafficante.server.close()
+  console.log('targetApp closed')
+  await trafficante.close()
+  console.log('trafficante closed')
   await baseAgent.close()
+  console.log('baseAgent closed')
   await interceptorAgent.close()
+  console.log('interceptorAgent closed')
 }
 
 // Run benchmark
 console.log('Starting benchmark...')
-runBenchmark().catch(console.error)
+runBenchmark().catch(error => {
+  console.error('runBenchmark error', error)
+  process.exit(1)
+})
