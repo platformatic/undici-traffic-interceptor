@@ -1,5 +1,5 @@
 {
-  "exclude": ["node_modules", "dist", "test"],
+  "exclude": ["node_modules", "dist", "test", "benchmarks"],
   "compilerOptions": {
     "moduleResolution": "NodeNext",
     "lib": [
