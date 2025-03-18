@@ -249,25 +249,25 @@ export const cases: Case[] = [
       }
     ]
   },
-  {
-    label: 'skipped due to response size (1Mb)',
-    request: {
-      method: 'GET',
-      path: '/image.jpg',
-      headers: {
-        Accept: 'image/jpeg',
-      }
-    },
-    responses: [
-      {
-        code: 200,
-        headers: {
-          'Content-Type': 'image/jpeg',
-          'Content-Length': '1048576'
-        },
-        body: Buffer.from(new Uint8Array(1024 * 1024))
-      }
-    ]
-  }
+  // {
+  //   label: 'skipped due to response size (1Mb)',
+  //   request: {
+  //     method: 'GET',
+  //     path: '/image.jpg',
+  //     headers: {
+  //       Accept: 'image/jpeg',
+  //     }
+  //   },
+  //   responses: [
+  //     {
+  //       code: 200,
+  //       headers: {
+  //         'Content-Type': 'image/jpeg',
+  //         'Content-Length': '1048576'
+  //       },
+  //       body: Buffer.from(new Uint8Array(1024 * 1024))
+  //     }
+  //   ]
+  // }
 
 ]
