@@ -19,7 +19,7 @@
     "lint:fix": "eslint src test benchmarks --fix",
     "bench": "node --experimental-strip-types benchmarks/index.ts",
     "bench:html": "http-server benchmarks -p 8001",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist;",
     "check": "pnpm lint && pnpm typecheck && pnpm test"

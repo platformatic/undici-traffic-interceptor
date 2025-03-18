@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { request, Agent } from 'undici'
 
-import { createTrafficanteInterceptor, type TrafficanteOptions } from '../src/index.ts'
+import createTrafficanteInterceptor, { type TrafficanteOptions } from '../src/index.ts'
 
 import { createApp, createTrafficante, waitForLogMessage } from './helper.ts'
 
