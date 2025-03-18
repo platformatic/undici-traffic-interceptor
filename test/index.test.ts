@@ -67,9 +67,8 @@ describe('TrafficanteInterceptor', () => {
     })
     await waitForLogMessage(trafficante.loggerSpy, (message) => {
       if (message.msg === 'trafficante received meta') {
-        assert.equal(message.body.applicationId, defaultOptions.labels.applicationId)
-        assert.equal(message.body.taxonomyId, defaultOptions.labels.taxonomyId)
         assert.ok(typeof message.body.timestamp === 'number')
+        assert.equal(message.headers['x-trafficante-labels'], JSON.stringify(defaultOptions.labels))
         assert.equal(message.body.request.url, `http://localhost:${app.port}/dummy`)
         assert.equal(message.body.request.headers['Content-Type'], 'application/json')
         assert.equal(message.body.request.headers['User-Agent'], 'test-user-agent')

@@ -263,7 +263,6 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       path: this.context.options.trafficante.pathSendMeta,
       method: 'POST',
       body: JSON.stringify({
-        ...this.context.labels,
         timestamp: this.context.request.timestamp,
         request: {
           url: this.context.request.url,
@@ -277,6 +276,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
         }
       }),
       headers: {
+        'x-trafficante-labels': JSON.stringify(this.context.labels),
         'content-type': 'application/json',
       }
     }).then((response) => {
