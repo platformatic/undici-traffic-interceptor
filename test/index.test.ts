@@ -470,4 +470,33 @@ describe('TrafficanteInterceptor', () => {
 
     await Promise.all(tasks)
   })
+
+  test('should handle abort request', async (t) => {
+    const app = await createApp({ t })
+    const trafficante = await createTrafficante({ t })
+    const agent = new Agent().compose(createTrafficanteInterceptor({
+      ...structuredClone(defaultOptions),
+      trafficante: {
+        ...defaultOptions.trafficante,
+        url: trafficante.url,
+      },
+      logger: trafficante.logger
+    }))
+
+    const abortController = new AbortController()
+    setTimeout(() => {
+      console.log('aborting request')
+      abortController.abort()
+    }, 100)
+
+
+    const response = await request(`${app.host}/echo`, {
+        dispatcher: agent,
+        method: 'GET',
+        query: { delay: 2000 },
+        signal: abortController.signal
+    })
+
+    assert.rejects(response.body.dump({ signal: abortController.signal }))
+  })
 })

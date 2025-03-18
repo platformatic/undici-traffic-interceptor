@@ -12,8 +12,8 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 
 const TARGET_PORT = 3000
 const TRAFFICANTE_PORT = 3001
-const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 1_000
-const CONCURRENCY = process.env.CONCURRENCY ? parseInt(process.env.CONCURRENCY) : 1 // TODO!
+const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 500
+const CONCURRENCY = process.env.CONCURRENCY ? parseInt(process.env.CONCURRENCY) : 10 // TODO!
 
 interface RequestMetrics {
   method: string
@@ -30,7 +30,7 @@ interface BenchmarkStats {
   }
 }
 
-function calculateStats(metrics: Record<string, RequestMetrics[]>): Record<string, BenchmarkStats> {
+function calculateStats (metrics: Record<string, RequestMetrics[]>): Record<string, BenchmarkStats> {
   const result: Record<string, BenchmarkStats> = {}
   for (const label in metrics) {
     const times = metrics[label].map(m => m.responseTime)
@@ -60,12 +60,12 @@ function calculateStats(metrics: Record<string, RequestMetrics[]>): Record<strin
   return result
 }
 
-function calculatePercentageDiff(newValue: number, baseValue: number): string {
+function calculatePercentageDiff (newValue: number, baseValue: number): string {
   const diff = ((newValue - baseValue) / baseValue) * 100
   return `${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%`
 }
 
-function compareStats(labels: string[], a: Record<string, BenchmarkStats>, labelA: string, b: Record<string, BenchmarkStats>, labelB: string) {   
+function compareStats (labels: string[], a: Record<string, BenchmarkStats>, labelA: string, b: Record<string, BenchmarkStats>, labelB: string) {
   const result = {}
   for (const label of labels) {
     result[label] = {
@@ -91,7 +91,7 @@ function compareStats(labels: string[], a: Record<string, BenchmarkStats>, label
   return result
 }
 
-async function makeRequests(agent: Dispatcher, label: string): Promise<Record<string, BenchmarkStats>> {
+async function makeRequests (agent: Dispatcher, label: string): Promise<Record<string, BenchmarkStats>> {
   console.log(`\nRunning benchmark: ${label}`)
   const metrics: Record<string, RequestMetrics[]> = {}
 
@@ -111,6 +111,8 @@ async function makeRequests(agent: Dispatcher, label: string): Promise<Record<st
               headers: c.request.headers
             })
 
+            await response.body.dump()
+
             const [seconds, nanoseconds] = process.hrtime(startTime)
             const responseTime = seconds * 1000 + nanoseconds / 1000000 // Convert to milliseconds
 
@@ -122,23 +124,20 @@ async function makeRequests(agent: Dispatcher, label: string): Promise<Record<st
 
             // console.log(`[${call.request.method}] ${call.request.path} - Status: ${response.statusCode} - Time: ${responseTime.toFixed(2)}ms`)
           } catch (error) {
-            if (error instanceof Error) {
-              console.error(`Error making request: ${error.message}`)
-            } else {
-              console.error('Unknown error making request')
-            }
+            console.error('Unknown error making request', error)
           }
         })())
       }
       await Promise.all(tasks)
       console.log(`${i} out of ${REQ_PER_CASE}`)
+      break
     }
   }
 
   return calculateStats(metrics)
 }
 
-async function runBenchmark() {
+async function runBenchmark () {
   console.log('Starting target and trafficante apps...')
   const targetApp = await createTargetApp(TARGET_PORT)
   const trafficante = await createTrafficanteApp(TRAFFICANTE_PORT)
@@ -174,27 +173,24 @@ async function runBenchmark() {
   const comparison = compareStats(Object.keys(withInterceptorStats), withInterceptorStats, 'With Interceptor', noInterceptorStats, 'No Interceptor')
   console.log(JSON.stringify(comparison, null, 2))
 
-  await fs.mkdir(path.join(__dirname,  '/result'), { recursive: true })
-  await fs.writeFile(path.join(__dirname,  '/result', 'data.json'), JSON.stringify(comparison, null, 2))
+  await fs.mkdir(path.join(__dirname, '/result'), { recursive: true })
+  await fs.writeFile(path.join(__dirname, '/result', 'data.json'), JSON.stringify(comparison, null, 2))
   console.log('\nBenchmark results written')
-
-  // Get collected requests data
-  console.log('\nCollected Requests:')
-  console.log('==================')
-  const collectedResponse = await request(`${trafficante.url}/collected`)
-  const collected = await collectedResponse.body.json()
-  console.log(JSON.stringify(collected, null, 2))
-
-  // Graceful shutdown on trafficante? app?
-  await new Promise(resolve => setTimeout(resolve, 3_000))
 
   // Cleanup with graceful termination
   await targetApp.close()
+  console.log('targetApp closed')
   await trafficante.close()
+  console.log('trafficante closed')
   await baseAgent.close()
+  console.log('baseAgent closed')
   await interceptorAgent.close()
+  console.log('interceptorAgent closed')
 }
 
 // Run benchmark
 console.log('Starting benchmark...')
-runBenchmark().catch(console.error)
+runBenchmark().catch(error => {
+  console.error('runBenchmark error', error)
+  process.exit(1)
+})

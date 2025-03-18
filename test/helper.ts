@@ -1,21 +1,23 @@
 import type { TestContext } from 'node:test'
 import type Stream from 'stream'
-
+import { setTimeout as wait } from 'node:timers/promises'
 import fastify from 'fastify'
 import pinoTest from 'pino-test'
 import pino from 'pino'
 
-export async function createApp ({ t }: { t: TestContext }) {
+export async function createApp({ t }: { t: TestContext }) {
   const server = fastify()
 
   server.route({
     method: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     url: '/*',
-    handler: (req, res) => {
+    handler: async (req, res) => {
       for (const [key, value] of Object.entries(req.headers)) {
         res.header(`x-request-headers-${key}`, value)
       }
 
+      // @ts-ignore-next
+      if (req.query?.delay) { await wait(Number(req.query.delay)) }
       // @ts-ignore-next
       if (req.query?.responseHeader) { res.header(req.query.responseHeader, req.query.responseHeaderValue) }
       // @ts-ignore-next
@@ -45,7 +47,7 @@ export async function createApp ({ t }: { t: TestContext }) {
   }
 }
 
-export async function createTrafficante ({ t, pathSendBody = '/ingest-body', pathSendMeta = '/requests' }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string }) {
+export async function createTrafficante({ t, pathSendBody = '/ingest-body', pathSendMeta = '/requests' }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string }) {
   const loggerStream = pinoTest.sink()
   const logger = pino({ level: 'debug' }, loggerStream)
   const loggerSpy = listenLogger(loggerStream, t)
@@ -90,7 +92,7 @@ type Spy = {
   reset: () => void,
   _onMessage: (received: any) => void
 }
-export function listenLogger (loggerStream: Stream.Transform, t: TestContext) {
+export function listenLogger(loggerStream: Stream.Transform, t: TestContext) {
   const spy: Spy = {
     buffer: [] as any[],
     onMessage: (cb: (received: any) => void) => {
@@ -116,7 +118,7 @@ export function listenLogger (loggerStream: Stream.Transform, t: TestContext) {
   return spy
 }
 
-export function waitForLogMessage (spy: Spy, match: (received: any) => boolean, max = 100): Promise<void> {
+export function waitForLogMessage(spy: Spy, match: (received: any) => boolean, max = 100): Promise<void> {
   return new Promise((resolve, reject) => {
     const fn = (received: any) => {
       if (match(received)) {
