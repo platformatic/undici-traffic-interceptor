@@ -78,7 +78,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   private interceptRequest: (context: InterceptorContext) => boolean
   private interceptResponse: (context: InterceptorContext) => boolean
 
-  constructor(
+  constructor (
     dispatchOptions: Partial<Dispatcher.DispatchOptions>,
     options: TrafficanteOptions,
     bloomFilter: BloomFilter,
@@ -115,11 +115,11 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.interceptResponse = options.interceptResponse ?? interceptResponse
   }
 
-  onRequestAbort(reason: Error) {
-    this.context.logger?.error({ reason }, '\n\n\n !!! TrafficanteInterceptor abort')
+  onRequestAbort (reason: Error) {
+    this.context.logger?.debug({ reason }, 'TrafficanteInterceptor onRequestAbort')
 
     if (this.writer && !this.writer.destroyed) {
-      this.writer.destroy()
+      this.writer.destroy(reason)
     }
 
     if (this.bodySendController) {
@@ -129,13 +129,14 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.aborted = true
   }
 
-  onRequestStart(controller: Dispatcher.DispatchController, context: unknown): void {
+  onRequestStart (controller: Dispatcher.DispatchController, context: unknown): void {
     this.context.logger?.debug('TrafficanteInterceptor onRequestStart')
 
     controller.abort = this.onRequestAbort.bind(this)
 
-    this.context.request.method = this.context.dispatchOptions.method as Dispatcher.HttpMethod
+    this.context.request.url = (this.context.dispatchOptions.origin as string) + (this.context.dispatchOptions.path as string || '/')
     this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
+    this.context.request.method = this.context.dispatchOptions.method as Dispatcher.HttpMethod
     this.context.interceptRequest = this.interceptRequest(this.context)
 
     if (!this.context.interceptRequest) {
@@ -143,10 +144,6 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       this.handler.onRequestStart?.(controller, context)
       return
     }
-
-    this.context.request.url = (this.context.dispatchOptions.origin as string) + (this.context.dispatchOptions.path as string || '/')
-
-    this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
 
     this.context.request.hash = this.context.hasher.update(this.context.request.url).digest()
     if (this.bloomFilter.has(this.context.request.hash)) {
@@ -159,7 +156,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.handler.onRequestStart?.(controller, context)
   }
 
-  onResponseStart(controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, statusMessage?: string): void {
+  onResponseStart (controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, statusMessage?: string): void {
     this.context.logger?.debug('TrafficanteInterceptor onResponseStart')
 
     this.context.response = {
@@ -206,7 +203,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage)
   }
 
-  async onResponseData(controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
+  async onResponseData (controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
     this.context.logger?.debug('TrafficanteInterceptor onResponseData')
 
     if (!this.context.interceptResponse || this.aborted) {
@@ -230,7 +227,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     this.handler.onResponseData?.(controller, chunk)
   }
 
-  async onResponseEnd(controller: Dispatcher.DispatchController, trailers: IncomingHttpHeaders): Promise<void> {
+  onResponseEnd (controller: Dispatcher.DispatchController, trailers: IncomingHttpHeaders): void {
     this.context.logger?.debug('TrafficanteInterceptor onResponseEnd')
 
     if (!this.context.interceptResponse || this.aborted) {
@@ -241,13 +238,17 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     if (this.context.interceptRequest && this.writer && !this.writer.destroyed) {
       try {
         this.writer.end()
-        const response = await this.send
-        if (response.statusCode !== 200) {
-          this.context.logger?.error({ response }, 'TrafficanteInterceptor error finalizing response body send')
-        }
       } catch (err) {
         this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error finalizing response body send')
       }
+
+      this.send.then((response) => {
+        if (response.statusCode > 299) {
+          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficanteInterceptor error sending body to trafficante')
+        }
+      }).catch((err) => {
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error finalizing response body send')
+      })
     }
 
     // Send meta data to trafficante
@@ -255,42 +256,45 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     // No redaction on headers since if there are auth headers, the request/response will be skipped
     this.context.logger?.debug({ url: this.context.request.url }, 'send meta to trafficante')
-    try {
-      await this.client.request({
-        path: this.context.options.trafficante.pathSendMeta,
-        method: 'POST',
-        body: JSON.stringify({
-          ...this.context.labels,
-          timestamp: this.context.request.timestamp,
-          request: {
-            url: this.context.request.url,
-            headers: this.context.request.headers
-          },
-          response: {
-            code: this.context.response.statusCode,
-            headers: this.context.response.headers,
-            bodyHash: this.context.response.hash.toString(),
-            bodySize: Number(this.context.response.headers['content-length']) || 0
-          }
-        }),
-        headers: {
-          'content-type': 'application/json',
+
+    this.client.request({
+      path: this.context.options.trafficante.pathSendMeta,
+      method: 'POST',
+      body: JSON.stringify({
+        ...this.context.labels,
+        timestamp: this.context.request.timestamp,
+        request: {
+          url: this.context.request.url,
+          headers: this.context.request.headers
+        },
+        response: {
+          code: this.context.response.statusCode,
+          headers: this.context.response.headers,
+          bodyHash: this.context.response.hash.toString(),
+          bodySize: Number(this.context.response.headers['content-length']) || 0
         }
-      })
-    } catch (err) {
+      }),
+      headers: {
+        'content-type': 'application/json',
+      }
+    }).then((response) => {
+      if (response.statusCode > 299) {
+        this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficanteInterceptor error sending meta to trafficante')
+      }
+    }).catch((err) => {
       this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending meta to trafficante')
-    }
+    })
 
     this.handler.onResponseEnd?.(controller, trailers)
   }
 
-  onRequestUpgrade(controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, socket: Duplex): void {
+  onRequestUpgrade (controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, socket: Duplex): void {
     this.context.logger?.debug('TrafficanteInterceptor onRequestUpgrade')
 
     this.handler.onRequestUpgrade?.(controller, statusCode, headers, socket)
   }
 
-  async onResponseError(controller: Dispatcher.DispatchController, err: Error): Promise<void> {
+  async onResponseError (controller: Dispatcher.DispatchController, err: Error): Promise<void> {
     this.context.logger?.error({ err }, 'TrafficanteInterceptor onResponseError')
 
     // Cleanup streams and abort pending requests
@@ -311,7 +315,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 }
 
-export function createTrafficanteInterceptor(options: TrafficanteOptions = defaultTrafficanteOptions): Dispatcher.DispatchInterceptor {
+export function createTrafficanteInterceptor (options: TrafficanteOptions = defaultTrafficanteOptions): Dispatcher.DispatchInterceptor {
   const { logger, ...optionsWithoutLogger } = options
   const validatedOptions: TrafficanteOptions = structuredClone(optionsWithoutLogger)
   // Validate options
@@ -342,8 +346,8 @@ export function createTrafficanteInterceptor(options: TrafficanteOptions = defau
   const bloomFilter = new BloomFilter(validatedOptions.bloomFilter.size, validatedOptions.bloomFilter.errorRate)
   const client = new Client(validatedOptions.trafficante.url)
 
-  return function trafficanteInterceptor(dispatch: Dispatcher['dispatch']): Dispatcher['dispatch'] {
-    return function InterceptedDispatch(
+  return function trafficanteInterceptor (dispatch: Dispatcher['dispatch']): Dispatcher['dispatch'] {
+    return function InterceptedDispatch (
       dispatchOptions: Dispatcher.DispatchOptions,
       handler: Dispatcher.DispatchHandler
     ): boolean {

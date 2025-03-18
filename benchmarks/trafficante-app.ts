@@ -17,12 +17,6 @@ export async function createTrafficanteApp (port = 3001) {
   server.post('/requests', (req, reply) => {
     collect.meta++
 
-    // console.log('req.body')
-    // console.log(req.body)
-
-    // console.log('collect.meta')
-    // console.log(collect.meta)
-
     reply.send('OK')
   })
 
@@ -34,17 +28,18 @@ export async function createTrafficanteApp (port = 3001) {
   await server.listen({ port, host: '0.0.0.0' })
   console.log(`Trafficante app listening at http://localhost:${port}`)
 
+  process.on('exit', async () => {
+    // Get collected requests data
+    console.log('\nCollected Requests:')
+    console.log('==================')
+    console.log(JSON.stringify(collect, null, 2))
+  })
+
   return {
     server,
     url: `http://localhost:${port}`,
     async close () {
-      process.on('exit', async () => {
-        // Get collected requests data
-        console.log('\nCollected Requests:')
-        console.log('==================')
-        console.log(JSON.stringify(collect, null, 2))
-      })
       await server.close()
-    }
+    },
   }
 }
