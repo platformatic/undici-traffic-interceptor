@@ -50,32 +50,30 @@ describe('TrafficanteInterceptor', () => {
     assert.equal(response.headers['x-request-headers-user-agent'], 'test-user-agent')
     assert.equal(response.headers['x-request-headers-content-type'], 'application/json')
 
-    await Promise.all([
-      waitForLogMessage(trafficante.loggerSpy, (message) => {
-        if (message.msg === 'trafficante received body') {
-          assert.equal(message.body, '[/dummy response]')
-          assert.equal(message.headers['x-request-url'], `http://localhost:${app.port}/dummy`)
-          return true
-        }
-        return false
-      }),
-      waitForLogMessage(trafficante.loggerSpy, (message) => {
-        if (message.msg === 'trafficante received meta') {
-          assert.equal(message.body.applicationId, defaultOptions.labels.applicationId)
-          assert.equal(message.body.taxonomyId, defaultOptions.labels.taxonomyId)
-          assert.ok(typeof message.body.timestamp === 'number')
-          assert.equal(message.body.request.url, `http://localhost:${app.port}/dummy`)
-          assert.equal(message.body.request.headers['Content-Type'], 'application/json')
-          assert.equal(message.body.request.headers['User-Agent'], 'test-user-agent')
-          assert.equal(message.body.response.code, 200)
-          assert.equal(message.body.response.headers['content-type'], 'text/plain; charset=utf-8')
-          assert.equal(message.body.response.bodyHash, '5034874602790624239')
-          assert.equal(message.body.response.bodySize, 17)
-          return true
-        }
-        return false
-      }),
-    ])
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      if (message.msg === 'trafficante received body') {
+        assert.equal(message.body, '[/dummy response]')
+        assert.equal(message.headers['x-request-url'], `http://localhost:${app.port}/dummy`)
+        return true
+      }
+      return false
+    })
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      if (message.msg === 'trafficante received meta') {
+        assert.equal(message.body.applicationId, defaultOptions.labels.applicationId)
+        assert.equal(message.body.taxonomyId, defaultOptions.labels.taxonomyId)
+        assert.ok(typeof message.body.timestamp === 'number')
+        assert.equal(message.body.request.url, `http://localhost:${app.port}/dummy`)
+        assert.equal(message.body.request.headers['Content-Type'], 'application/json')
+        assert.equal(message.body.request.headers['User-Agent'], 'test-user-agent')
+        assert.equal(message.body.response.code, 200)
+        assert.equal(message.body.response.headers['content-type'], 'text/plain; charset=utf-8')
+        assert.equal(message.body.response.bodyHash, '5034874602790624239')
+        assert.equal(message.body.response.bodySize, 17)
+        return true
+      }
+      return false
+    })
   })
 
   test('should not pass request data to trafficante due to request headers, with concurrency', async (t) => {
@@ -159,22 +157,25 @@ describe('TrafficanteInterceptor', () => {
 
         assert.equal(response.statusCode, 200)
         assert.equal(await response.body.text(), 'OK')
+      })())
+    }
 
-        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+    await Promise.all(tasks)
+
+    for (let i = 0; i < 10; i++) {
+      await Promise.all([
+        waitForLogMessage(trafficante.loggerSpy, (message) => {
           return message.msg === 'skip by bloom filter' && message.request?.headers['x-counter'] === i.toString()
-        })
-
-        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+        }),
+        waitForLogMessage(trafficante.loggerSpy, (message) => {
           if (message.msg === 'trafficante received meta') {
             assert.equal(message.body.request.url, `http://localhost:${app.port}${path}`)
             return message.body.request.headers?.['x-counter'] === i.toString()
           }
           return false
         })
-      })())
+      ])
     }
-
-    await Promise.all(tasks)
   })
 
   test('should not pass request data to trafficante due to request method, with concurrency', async (t) => {
@@ -485,18 +486,77 @@ describe('TrafficanteInterceptor', () => {
 
     const abortController = new AbortController()
     setTimeout(() => {
-      console.log('aborting request')
       abortController.abort()
     }, 100)
 
-
     const response = await request(`${app.host}/echo`, {
-        dispatcher: agent,
-        method: 'GET',
-        query: { delay: 2000 },
-        signal: abortController.signal
+      dispatcher: agent,
+      method: 'GET',
+      query: { delay: 2000 },
+      signal: abortController.signal
     })
 
     assert.rejects(response.body.dump({ signal: abortController.signal }))
+
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      return message.msg === 'TrafficanteInterceptor onRequestStart'
+    })
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      return message.msg === 'TrafficanteInterceptor onRequestAbort'
+    })
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      return message.msg === 'TrafficanteInterceptor onResponseData'
+    })
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      return message.msg === 'TrafficanteInterceptor onResponseEnd'
+    })
+  })
+
+  test('should handle error response from trafficante meta', async (t) => {
+    const app = await createApp({ t })
+    const trafficante = await createTrafficante({ t, errorMeta: true })
+    const agent = new Agent().compose(createTrafficanteInterceptor({
+      ...structuredClone(defaultOptions),
+      trafficante: {
+        ...defaultOptions.trafficante,
+        url: trafficante.url,
+      },
+      logger: trafficante.logger
+    }))
+
+    await request(`${app.host}/echo`, {
+      dispatcher: agent,
+      method: 'GET'
+    })
+
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      return message.msg === 'TrafficanteInterceptor error sending meta to trafficante' &&
+        message.request?.url === `http://localhost:${app.port}/echo` &&
+        message.response?.code === 500
+    })
+  })
+
+  test('should handle error response from trafficante body', async (t) => {
+    const app = await createApp({ t })
+    const trafficante = await createTrafficante({ t, errorBody: true })
+    const agent = new Agent().compose(createTrafficanteInterceptor({
+      ...structuredClone(defaultOptions),
+      trafficante: {
+        ...defaultOptions.trafficante,
+        url: trafficante.url,
+      },
+      logger: trafficante.logger
+    }))
+
+    await request(`${app.host}/echo`, {
+      dispatcher: agent,
+      method: 'GET'
+    })
+
+    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      return message.msg === 'TrafficanteInterceptor error sending body to trafficante' &&
+        message.request?.url === `http://localhost:${app.port}/echo` &&
+        message.response?.code === 500
+    })
   })
 })

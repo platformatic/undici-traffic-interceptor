@@ -19,11 +19,13 @@ interface Case {
   label: string
   request: Request
   responses: Response[]
+  expected?: boolean
 }
 
 export const cases: Case[] = [
   {
     label: 'intercepted',
+    expected: true,
     request: {
       method: 'GET',
       path: '/api/users/123',
@@ -147,13 +149,13 @@ export const cases: Case[] = [
     ]
   },
   {
-    label: 'skipped due to request headers (Cookie: session=123)',
+    label: 'skipped due to request headers (Cookie: sessionid=123)',
     request: {
       method: 'GET',
       path: '/api/users/123/favourites',
       headers: {
         Accept: 'application/json',
-        Cookie: 'session=123'
+        Cookie: 'sessionid=123'
       }
     },
     responses: [
@@ -228,7 +230,7 @@ export const cases: Case[] = [
     ]
   },
   {
-    label: 'skipped due to response headers (Cookie: session=123)',
+    label: 'skipped due to response headers (Set-Cookie: sessionid=123)',
     request: {
       method: 'GET',
       path: '/api/products/123/sell',
@@ -241,7 +243,7 @@ export const cases: Case[] = [
         code: 200,
         headers: {
           'Content-Type': 'application/json',
-          Cookie: 'session=123'
+          'Set-Cookie': 'sessionid=123'
         },
         body: { id: 123, name: 'John Doe', email: 'john@example.com' }
       }

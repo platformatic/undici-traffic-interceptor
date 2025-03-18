@@ -12,8 +12,9 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 
 const TARGET_PORT = 3000
 const TRAFFICANTE_PORT = 3001
-const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 500
-const CONCURRENCY = process.env.CONCURRENCY ? parseInt(process.env.CONCURRENCY) : 10 // TODO!
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
+const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 100
+const CONCURRENCY = process.env.CONCURRENCY ? parseInt(process.env.CONCURRENCY) : 3
 
 interface RequestMetrics {
   method: string
@@ -95,7 +96,8 @@ async function makeRequests (agent: Dispatcher, label: string): Promise<Record<s
   console.log(`\nRunning benchmark: ${label}`)
   const metrics: Record<string, RequestMetrics[]> = {}
 
-  for (const c of cases) {
+  for (let cc = 0; cc < cases.length; cc++) {
+    const c = cases[cc]
     console.log(`\n\n\n ******************* \nRunning case: ${c.label}`)
     metrics[c.label] = []
     for (let i = 0; i < REQ_PER_CASE; i += CONCURRENCY) {
@@ -129,8 +131,8 @@ async function makeRequests (agent: Dispatcher, label: string): Promise<Record<s
         })())
       }
       await Promise.all(tasks)
-      console.log(`${i} out of ${REQ_PER_CASE}`)
-      break
+
+      // console.log(`${i} out of ${REQ_PER_CASE}`)
     }
   }
 
@@ -160,7 +162,7 @@ async function runBenchmark () {
       pathSendBody: '/ingest-body',
       pathSendMeta: '/requests'
     },
-    logger: pino({ level: 'debug' })
+    logger: pino({ level: LOG_LEVEL })
   }))
 
   // Run benchmarks
@@ -172,20 +174,20 @@ async function runBenchmark () {
   console.log('====================')
   const comparison = compareStats(Object.keys(withInterceptorStats), withInterceptorStats, 'With Interceptor', noInterceptorStats, 'No Interceptor')
   console.log(JSON.stringify(comparison, null, 2))
-
   await fs.mkdir(path.join(__dirname, '/result'), { recursive: true })
   await fs.writeFile(path.join(__dirname, '/result', 'data.json'), JSON.stringify(comparison, null, 2))
-  console.log('\nBenchmark results written')
+  console.log('\nDONE')
+
+  setTimeout(() => {
+    // wait to flush trafficante data
+    process.exit(0)
+  }, 3_000)
 
   // Cleanup with graceful termination
-  await targetApp.close()
-  console.log('targetApp closed')
-  await trafficante.close()
-  console.log('trafficante closed')
-  await baseAgent.close()
-  console.log('baseAgent closed')
   await interceptorAgent.close()
-  console.log('interceptorAgent closed')
+  await baseAgent.close()
+  await targetApp.close()
+  await trafficante.close()
 }
 
 // Run benchmark

@@ -41,9 +41,7 @@ export async function createTargetApp (port = 3000) {
   return {
     server,
     async close () {
-      console.log('targetApp closing ***')
       await server.close()
-    }
+    },
   }
 }
-

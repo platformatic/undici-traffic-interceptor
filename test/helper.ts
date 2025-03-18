@@ -5,7 +5,7 @@ import fastify from 'fastify'
 import pinoTest from 'pino-test'
 import pino from 'pino'
 
-export async function createApp({ t }: { t: TestContext }) {
+export async function createApp ({ t }: { t: TestContext }) {
   const server = fastify()
 
   server.route({
@@ -47,7 +47,10 @@ export async function createApp({ t }: { t: TestContext }) {
   }
 }
 
-export async function createTrafficante({ t, pathSendBody = '/ingest-body', pathSendMeta = '/requests' }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string }) {
+export async function createTrafficante ({
+  t,
+  pathSendBody = '/ingest-body', pathSendMeta = '/requests', errorMeta = false, errorBody = false
+}: { t: TestContext, pathSendBody?: string, pathSendMeta?: string, errorMeta?: boolean, errorBody?: boolean }) {
   const loggerStream = pinoTest.sink()
   const logger = pino({ level: 'debug' }, loggerStream)
   const loggerSpy = listenLogger(loggerStream, t)
@@ -55,6 +58,11 @@ export async function createTrafficante({ t, pathSendBody = '/ingest-body', path
   const server = fastify({ loggerInstance: logger })
 
   server.post(pathSendBody, (req, res) => {
+    if (errorBody) {
+      res.status(500).send('Internal Server Error')
+      return
+    }
+
     logger.info({
       body: req.body,
       headers: req.headers
@@ -63,6 +71,11 @@ export async function createTrafficante({ t, pathSendBody = '/ingest-body', path
   })
 
   server.post(pathSendMeta, (req, res) => {
+    if (errorMeta) {
+      res.status(500).send('Internal Server Error')
+      return
+    }
+
     logger.info({
       headers: req.headers,
       body: req.body // TODO update test, assert
@@ -92,7 +105,7 @@ type Spy = {
   reset: () => void,
   _onMessage: (received: any) => void
 }
-export function listenLogger(loggerStream: Stream.Transform, t: TestContext) {
+export function listenLogger (loggerStream: Stream.Transform, t: TestContext) {
   const spy: Spy = {
     buffer: [] as any[],
     onMessage: (cb: (received: any) => void) => {
@@ -118,7 +131,7 @@ export function listenLogger(loggerStream: Stream.Transform, t: TestContext) {
   return spy
 }
 
-export function waitForLogMessage(spy: Spy, match: (received: any) => boolean, max = 100): Promise<void> {
+export function waitForLogMessage (spy: Spy, match: (received: any) => boolean, max = 200): Promise<void> {
   return new Promise((resolve, reject) => {
     const fn = (received: any) => {
       if (match(received)) {
