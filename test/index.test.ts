@@ -53,7 +53,14 @@ describe('TrafficanteInterceptor', () => {
     await waitForLogMessage(trafficante.loggerSpy, (message) => {
       if (message.msg === 'trafficante received body') {
         assert.equal(message.body, '[/dummy response]')
-        assert.equal(message.headers['x-request-url'], `http://localhost:${app.port}/dummy`)
+        assert.equal(message.headers['x-trafficante-labels'], JSON.stringify(defaultOptions.labels))
+        const requestData = JSON.parse(message.headers['x-request-data'])
+        assert.equal(requestData.url, `http://localhost:${app.port}/dummy`)
+        assert.equal(requestData.headers['Content-Type'], 'application/json')
+        assert.equal(requestData.headers['User-Agent'], 'test-user-agent')
+        const responseData = JSON.parse(message.headers['x-response-data'])
+        assert.equal(responseData.headers['content-type'], 'text/plain; charset=utf-8')
+        assert.equal(responseData.headers['content-length'], '17')
         return true
       }
       return false

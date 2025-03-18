@@ -178,7 +178,6 @@ async function runBenchmark () {
   await fs.writeFile(path.join(__dirname, '/result', 'data.json'), JSON.stringify(comparison, null, 2))
   console.log('\nDONE')
 
-
   // TODO wait for trafficante to receive all the meta requests
 
   // Cleanup with graceful termination

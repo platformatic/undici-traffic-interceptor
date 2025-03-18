@@ -187,7 +187,9 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
         headers: {
           'content-type': this.context.response.headers['content-type'] || 'application/octet-stream',
           'content-length': (this.context.response.headers['content-length'] ?? '0').toString(),
-          'x-request-url': this.context.request.url,
+          'x-trafficante-labels': JSON.stringify(this.context.labels),
+          'x-request-data': JSON.stringify({ url: this.context.request.url, headers: this.context.request.headers }),
+          'x-response-data': JSON.stringify({ headers: this.context.response.headers }),
         },
         body: this.writer,
         signal: this.bodySendController.signal
