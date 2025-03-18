@@ -13,7 +13,7 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 const TARGET_PORT = 3000
 const TRAFFICANTE_PORT = 3001
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
-const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 1_000
+const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 10_000
 const CONCURRENCY = process.env.CONCURRENCY ? parseInt(process.env.CONCURRENCY) : 5
 
 interface RequestMetrics {

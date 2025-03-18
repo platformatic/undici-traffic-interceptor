@@ -149,30 +149,6 @@ By default, the interceptor will skip:
 
 Creates a new Undici interceptor with the specified options. Returns a function that can be used with Undici's `compose()` method.
 
-### InterceptorContext
-
-The context object passed to custom interceptor functions contains:
-
-```typescript
-interface InterceptorContext {
-  request: {
-    method: string;
-    headers: IncomingHttpHeaders;
-    url?: string;
-    hash?: bigint;
-  };
-  
-  response: {
-    statusCode: number;
-    headers: OutgoingHttpHeaders;
-    hash?: bigint;
-  };
-  
-  labels: Record<string, string>;
-  options: TrafficanteOptions;
-}
-```
-
 ## Caveats
 
 - Response size filtering is based on the `content-length` header. If this header is missing from the response, the response will be accepted regardless of its actual size.
