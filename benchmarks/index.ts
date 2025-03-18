@@ -13,8 +13,8 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 const TARGET_PORT = 3000
 const TRAFFICANTE_PORT = 3001
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
-const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 100
-const CONCURRENCY = process.env.CONCURRENCY ? parseInt(process.env.CONCURRENCY) : 3
+const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 1_000
+const CONCURRENCY = process.env.CONCURRENCY ? parseInt(process.env.CONCURRENCY) : 5
 
 interface RequestMetrics {
   method: string
@@ -178,10 +178,8 @@ async function runBenchmark () {
   await fs.writeFile(path.join(__dirname, '/result', 'data.json'), JSON.stringify(comparison, null, 2))
   console.log('\nDONE')
 
-  setTimeout(() => {
-    // wait to flush trafficante data
-    process.exit(0)
-  }, 3_000)
+
+  // TODO wait for trafficante to receive all the meta requests
 
   // Cleanup with graceful termination
   await interceptorAgent.close()
