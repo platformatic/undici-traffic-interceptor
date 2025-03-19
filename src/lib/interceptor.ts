@@ -266,7 +266,6 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
         timestamp: this.context.request.timestamp,
         request: {
           url: this.context.request.url,
-          headers: this.context.request.headers
         },
         response: {
           code: this.context.response.statusCode,
