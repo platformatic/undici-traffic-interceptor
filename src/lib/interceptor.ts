@@ -318,8 +318,9 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 }
 
 export function createTrafficanteInterceptor (options: TrafficanteOptions = defaultTrafficanteOptions): Dispatcher.DispatchInterceptor {
-  const { logger, ...optionsWithoutLogger } = options
-  const validatedOptions: TrafficanteOptions = structuredClone(optionsWithoutLogger)
+  const { logger, interceptResponseStatusCodes, ...optionsRest } = options
+  const validatedOptions: TrafficanteOptions = structuredClone(optionsRest)
+
   // Validate options
   if (!validatedOptions.bloomFilter || typeof validatedOptions.bloomFilter.size !== 'number' || validatedOptions.bloomFilter.size <= 0) {
     throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_BLOOM_FILTER_SIZE')
@@ -338,10 +339,10 @@ export function createTrafficanteInterceptor (options: TrafficanteOptions = defa
   if (!validatedOptions.labels) {
     validatedOptions.labels = defaultTrafficanteOptions.labels
   }
-  validatedOptions.skippingRequestHeaders = optionsWithoutLogger.skippingRequestHeaders ?? defaultTrafficanteOptions.skippingRequestHeaders
-  validatedOptions.skippingResponseHeaders = optionsWithoutLogger.skippingResponseHeaders ?? defaultTrafficanteOptions.skippingResponseHeaders
-  validatedOptions.interceptResponseStatusCodes = optionsWithoutLogger.interceptResponseStatusCodes ?? defaultTrafficanteOptions.interceptResponseStatusCodes
-  validatedOptions.skippingCookieSessionIds = optionsWithoutLogger.skippingCookieSessionIds ?? defaultTrafficanteOptions.skippingCookieSessionIds
+  validatedOptions.skippingRequestHeaders = optionsRest.skippingRequestHeaders ?? defaultTrafficanteOptions.skippingRequestHeaders
+  validatedOptions.skippingResponseHeaders = optionsRest.skippingResponseHeaders ?? defaultTrafficanteOptions.skippingResponseHeaders
+  validatedOptions.interceptResponseStatusCodes = interceptResponseStatusCodes ?? defaultTrafficanteOptions.interceptResponseStatusCodes
+  validatedOptions.skippingCookieSessionIds = optionsRest.skippingCookieSessionIds ?? defaultTrafficanteOptions.skippingCookieSessionIds
 
   validatedOptions.logger = logger
 
