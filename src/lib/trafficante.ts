@@ -87,6 +87,8 @@ export function interceptRequest (context: InterceptorContext): boolean {
 }
 
 export function interceptResponse (context: InterceptorContext): boolean {
+  let hasContentLength = false
+
   // skip by request method too
   if (context.request.method as Dispatcher.HttpMethod !== INTERCEPT_REQUEST_METHOD_GET) {
     return false
@@ -121,9 +123,16 @@ export function interceptResponse (context: InterceptorContext): boolean {
           return false
         }
       }
-    } else if (header === 'content-length' && Number(context.response.headers['content-length']) > context.options.maxResponseSize) {
-      return false
+    } else if (header === 'content-length') {
+      hasContentLength = true
+      if (Number(context.response.headers['content-length']) > context.options.maxResponseSize) {
+        return false
+      }
     }
+  }
+
+  if (!hasContentLength) {
+    return false
   }
 
   return true
