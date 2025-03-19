@@ -1,4 +1,4 @@
-# undici-trafficante-interceptor
+# @platformatic/undici-trafficante-interceptor
 
 An [Undici](https://github.com/nodejs/undici) interceptor that allows you to inspect and filter HTTP traffic based on request and response data. It uses a Bloom filter to efficiently track and deduplicate requests.
 
@@ -18,7 +18,7 @@ An [Undici](https://github.com/nodejs/undici) interceptor that allows you to ins
 ## Installation
 
 ```bash
-npm install TODO
+npm install @platformatic/undici-trafficante-interceptor
 ```
 
 ## Usage
@@ -27,7 +27,7 @@ Here's a basic example of how to use the interceptor:
 
 ```typescript
 import { Agent, request } from 'undici'
-import createTrafficanteInterceptor from 'undici-trafficante-interceptor'
+import createTrafficanteInterceptor from '@platformatic/undici-trafficante-interceptor'
 
 // Create an agent with the interceptor
 const agent = new Agent().compose(createTrafficanteInterceptor({
