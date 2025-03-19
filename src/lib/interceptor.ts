@@ -248,7 +248,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
         if (response.statusCode > 299) {
           this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficanteInterceptor error sending body to trafficante')
         }
-      }).catch((err) => {
+      }, (err) => {
         this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error finalizing response body send')
       })
     }
@@ -269,7 +269,6 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
         },
         response: {
           code: this.context.response.statusCode,
-          headers: this.context.response.headers,
           bodyHash: this.context.response.hash.toString(),
           bodySize: Number(this.context.response.headers['content-length']) || 0
         }
@@ -282,7 +281,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       if (response.statusCode > 299) {
         this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficanteInterceptor error sending meta to trafficante')
       }
-    }).catch((err) => {
+    }, (err) => {
       this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending meta to trafficante')
     })
 

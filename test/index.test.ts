@@ -71,7 +71,6 @@ describe('TrafficanteInterceptor', () => {
         assert.equal(message.headers['x-trafficante-labels'], JSON.stringify(defaultOptions.labels))
         assert.equal(message.body.request.url, `http://localhost:${app.port}/dummy`)
         assert.equal(message.body.response.code, 200)
-        assert.equal(message.body.response.headers['content-type'], 'text/plain; charset=utf-8')
         assert.equal(message.body.response.bodyHash, '5034874602790624239')
         assert.equal(message.body.response.bodySize, 17)
         return true
