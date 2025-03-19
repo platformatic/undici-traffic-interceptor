@@ -1,24 +1,28 @@
 {
-  "name": "undici-trafficante-interceptor",
-  "version": "1.0.0",
+  "name": "@platformatic/undici-trafficante-interceptor",
+  "version": "0.1.0-dev.2",
   "description": "An Undici interceptor that allows you to inspect and filter HTTP traffic based on request and response data",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
-  "private": true,
   "license": "Apache-2.0",
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js"
     }
   },
   "scripts": {
     "test": "node --test --experimental-strip-types test/*.test.ts",
-    "lint": "eslint src",
-    "lint:fix": "eslint src --fix",
-    "build": "npm run clean && tsc",
-    "clean": "rm -rf dist;"
+    "lint": "eslint src test benchmarks",
+    "lint:fix": "eslint src test benchmarks --fix",
+    "bench": "node --experimental-strip-types benchmarks/index.ts",
+    "bench:html": "http-server benchmarks -p 8001",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist;",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "repository": {
     "type": "git",
@@ -26,13 +30,18 @@
   },
   "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
   "dependencies": {
+    "@node-rs/xxhash": "^1.7.6",
+    "cookie": "^1.0.2",
     "undici": "^7.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
     "eslint": "^9.21.0",
     "fastify": "^5.2.1",
+    "http-server": "^14.1.1",
     "neostandard": "^0.12.1",
+    "pino": "^9.6.0",
+    "pino-test": "^1.1.0",
     "typescript": "^5.8.2"
   },
   "engines": {
