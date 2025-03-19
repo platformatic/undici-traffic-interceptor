@@ -27,7 +27,7 @@ Here's a basic example of how to use the interceptor:
 
 ```typescript
 import { Agent, request } from 'undici'
-import { createTrafficanteInterceptor } from 'undici-trafficante-interceptor'
+import createTrafficanteInterceptor from 'undici-trafficante-interceptor'
 
 // Create an agent with the interceptor
 const agent = new Agent().compose(createTrafficanteInterceptor({
