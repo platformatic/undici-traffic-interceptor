@@ -78,7 +78,7 @@ export async function createTrafficante ({
 
     logger.info({
       headers: req.headers,
-      body: req.body // TODO update test, assert
+      body: req.body
     }, 'trafficante received meta')
     res.send('OK')
   })
