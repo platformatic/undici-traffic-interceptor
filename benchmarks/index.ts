@@ -28,6 +28,8 @@ interface BenchmarkStats {
     min: string
     max: string
     avg: string
+    total: string
+    reqsPerSecond: string
   }
 }
 
@@ -44,7 +46,9 @@ function calculateStats (metrics: Record<string, RequestMetrics[]>): Record<stri
       responseTime: {
         min: min.toFixed(2),
         max: max.toFixed(2),
-        avg: avg.toFixed(2)
+        avg: avg.toFixed(2),
+        total: times.reduce((a, b) => a + b, 0).toFixed(2),
+        reqsPerSecond: (metrics[label].length / times.reduce((a, b) => a + b, 0) * 1000).toFixed(2)
       }
     }
   }
@@ -54,7 +58,9 @@ function calculateStats (metrics: Record<string, RequestMetrics[]>): Record<stri
     responseTime: {
       min: Math.min(...Object.values(result).map(r => parseFloat(r.responseTime.min))),
       max: Math.max(...Object.values(result).map(r => parseFloat(r.responseTime.max))),
-      avg: Object.values(result).reduce((a, b) => a + parseFloat(b.responseTime.avg), 0) / Object.values(result).length
+      avg: Object.values(result).reduce((a, b) => a + parseFloat(b.responseTime.avg), 0) / Object.values(result).length,
+      total: Object.values(result).reduce((a, b) => a + parseFloat(b.responseTime.total), 0),
+      reqsPerSecond: (Object.values(result).reduce((a, b) => a + b.requestCount, 0) / Object.values(result).reduce((a, b) => a + parseFloat(b.responseTime.total), 0) * 1000).toFixed(2)
     }
   }
 
@@ -84,6 +90,14 @@ function compareStats (labels: string[], a: Record<string, BenchmarkStats>, labe
         avg: calculatePercentageDiff(
           parseFloat(a[label].responseTime.avg),
           parseFloat(b[label].responseTime.avg)
+        ),
+        total: calculatePercentageDiff(
+          parseFloat(a[label].responseTime.total),
+          parseFloat(b[label].responseTime.total)
+        ),
+        reqsPerSecond: calculatePercentageDiff(
+          parseFloat(a[label].responseTime.reqsPerSecond),
+          parseFloat(b[label].responseTime.reqsPerSecond)
         )
       }
     }
@@ -162,6 +176,7 @@ async function runBenchmark () {
       pathSendBody: '/ingest-body',
       pathSendMeta: '/requests'
     },
+    matchingDomains: ['sub.plt', 'plt.local', 'localhost'],
     logger: pino({ level: LOG_LEVEL })
   }))
 
