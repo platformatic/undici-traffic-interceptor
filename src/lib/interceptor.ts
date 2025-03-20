@@ -178,7 +178,13 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       statusCode,
       headers
     }
-    this.context.interceptResponse = this.context.interceptRequest && this.interceptResponse(this.context)
+
+    if (!this.context.interceptRequest) {
+      this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage)
+      return
+    }
+
+    this.context.interceptResponse = this.interceptResponse(this.context)
 
     if (!this.context.interceptResponse) {
       this.context.logger?.debug({ response: this.context.response }, 'skip by response')

@@ -134,10 +134,10 @@ describe('TrafficanteInterceptor', () => {
         url: trafficante.url,
       },
       logger: trafficante.logger,
-      matchingDomains: ['.local', '.plt.local']
+      matchingDomains: ['.sub.local', '.plt.local']
     }))
 
-    const origins = ['https://plt.local', 'https://sub.plt.local', 'http://sub.sub.plt.local', 'http://local:3000']
+    const origins = ['https://local', 'https://sub1.sub2.local', 'http://local:3000']
     const path = '/dummy'
 
     for (const origin of origins) {
@@ -158,7 +158,47 @@ describe('TrafficanteInterceptor', () => {
     }
   })
 
-  // TODO matchingDomains
+  test('should pass request data to trafficante with matching domains', async (t) => {
+    const app = await createApp({ t })
+    const trafficante = await createTrafficante({ t })
+    const agent = new Agent().compose(createTrafficanteInterceptor({
+      ...structuredClone(defaultOptions),
+      trafficante: {
+        ...defaultOptions.trafficante,
+        url: trafficante.url,
+      },
+      logger: trafficante.logger,
+      matchingDomains: ['.sub.plt', '.plt.local', 'localhost']
+    }))
+
+    // note: use a different path to trigger sending body
+    const requests = [
+      { origin: 'https://sub.plt', path: '/1' },
+      { origin: 'https://plt.local', path: '/2' },
+      { origin: 'http://localhost:3000', path: '/3' },
+    ]
+
+    for (const r of requests) {
+      const response = await request(`${app.host}${r.path}`, {
+        dispatcher: agent,
+        method: 'GET',
+        headers: {
+          Origin: r.origin
+        }
+      })
+
+      assert.equal(response.statusCode, 200)
+      assert.equal(await response.body.text(), `[${r.path} response]`)
+
+      await waitForLogMessage(trafficante.loggerSpy, (message) => {
+        if (message.msg === 'trafficante received body') {
+          const requestData = JSON.parse(message.headers['x-request-data'])
+          return requestData.headers['Origin'] === r.origin
+        }
+        return false
+      })
+    }
+  })
 
   test('should not pass request data to bloom filter but only meta, with concurrency', async (t) => {
     const app = await createApp({ t })
