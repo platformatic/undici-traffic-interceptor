@@ -16,6 +16,7 @@ import {
 } from './trafficante.ts'
 import { BloomFilter } from './bloom-filter.ts'
 import type { Logger } from 'pino'
+import { extractDomain } from './utils.ts'
 
 const defaultTrafficanteOptions: TrafficanteOptions = {
   bloomFilter: {
@@ -47,6 +48,7 @@ export type InterceptorContext = {
     headers: IncomingHttpHeaders
     timestamp: number
     url?: string // domain name + path / no query string
+    domain?: string // domain name
     hash?: bigint // hash of request.url
   }
 
@@ -61,6 +63,8 @@ export type InterceptorContext = {
 
   interceptRequest: boolean | undefined
   interceptResponse: boolean | undefined
+  sendMeta: boolean | undefined
+  sendBody: boolean | undefined
 }
 
 class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
@@ -109,6 +113,8 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
       interceptRequest: undefined,
       interceptResponse: undefined,
+      sendMeta: undefined,
+      sendBody: undefined,
     }
 
     this.interceptRequest = options.interceptRequest ?? interceptRequest
@@ -134,23 +140,32 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     controller.abort = this.onRequestAbort.bind(this)
 
+    if (this.context.options.matchingDomains) {
+      this.context.request.domain = extractDomain(this.context.dispatchOptions.origin as string)
+    }
     this.context.request.url = (this.context.dispatchOptions.origin as string) + (this.context.dispatchOptions.path as string || '/')
     this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
     this.context.request.method = this.context.dispatchOptions.method as Dispatcher.HttpMethod
     this.context.interceptRequest = this.interceptRequest(this.context)
 
     if (!this.context.interceptRequest) {
+      this.context.sendBody = false
+      this.context.sendMeta = false
       this.context.logger?.debug({ request: this.context.request }, 'skip by request')
       this.handler.onRequestStart?.(controller, context)
       return
     }
 
+    // will send only meta and no body if bloom filter is hit
     this.context.request.hash = this.context.hasher.update(this.context.request.url).digest()
     if (this.bloomFilter.has(this.context.request.hash)) {
       this.context.logger?.debug({ request: this.context.request }, 'skip by bloom filter')
-      this.context.interceptRequest = false
+      this.context.sendMeta = true
+      this.context.sendBody = false
     } else {
       this.bloomFilter.add(this.context.request.hash)
+      this.context.sendMeta = true
+      this.context.sendBody = true
     }
 
     this.handler.onRequestStart?.(controller, context)
@@ -163,7 +178,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       statusCode,
       headers
     }
-    this.context.interceptResponse = this.interceptResponse(this.context)
+    this.context.interceptResponse = this.context.interceptRequest && this.interceptResponse(this.context)
 
     if (!this.context.interceptResponse) {
       this.context.logger?.debug({ response: this.context.response }, 'skip by response')
@@ -171,7 +186,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       return
     }
 
-    if (this.context.interceptRequest) {
+    if (this.context.sendBody) {
       // Send data to trafficante
       // Don's send response body to trafficante when request is intercepted due to request headers or bloom filter
       this.writer = new PassThrough()
@@ -213,9 +228,11 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       return
     }
 
-    this.context.hasher.update(chunk)
+    if (this.context.sendMeta) {
+      this.context.hasher.update(chunk)
+    }
 
-    if (this.context.interceptRequest && this.writer && !this.writer.destroyed) {
+    if (this.context.sendBody && this.writer && !this.writer.destroyed) {
       try {
         if (!this.writer.write(chunk)) {
           await new Promise(resolve => this.writer?.once('drain', resolve))
@@ -237,7 +254,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       return
     }
 
-    if (this.context.interceptRequest && this.writer && !this.writer.destroyed) {
+    if (this.context.sendBody && this.writer && !this.writer.destroyed) {
       try {
         this.writer.end()
       } catch (err) {
@@ -253,37 +270,38 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       })
     }
 
-    // Send meta data to trafficante
-    this.context.response.hash = this.context.hasher.digest()
+    if (this.context.sendMeta) {
+      this.context.response.hash = this.context.hasher.digest()
 
-    // No redaction on headers since if there are auth headers, the request/response will be skipped
-    this.context.logger?.debug({ url: this.context.request.url }, 'send meta to trafficante')
+      // No redaction on headers since if there are auth headers, the request/response will be skipped
+      this.context.logger?.debug({ url: this.context.request.url }, 'send meta to trafficante')
 
-    this.client.request({
-      path: this.context.options.trafficante.pathSendMeta,
-      method: 'POST',
-      body: JSON.stringify({
-        timestamp: this.context.request.timestamp,
-        request: {
-          url: this.context.request.url,
-        },
-        response: {
-          code: this.context.response.statusCode,
-          bodyHash: this.context.response.hash.toString(),
-          bodySize: Number(this.context.response.headers['content-length']) || 0
+      this.client.request({
+        path: this.context.options.trafficante.pathSendMeta,
+        method: 'POST',
+        body: JSON.stringify({
+          timestamp: this.context.request.timestamp,
+          request: {
+            url: this.context.request.url,
+          },
+          response: {
+            code: this.context.response.statusCode,
+            bodyHash: this.context.response.hash.toString(),
+            bodySize: Number(this.context.response.headers['content-length']) || 0
+          }
+        }),
+        headers: {
+          'x-trafficante-labels': JSON.stringify(this.context.labels),
+          'content-type': 'application/json',
         }
-      }),
-      headers: {
-        'x-trafficante-labels': JSON.stringify(this.context.labels),
-        'content-type': 'application/json',
-      }
-    }).then((response) => {
-      if (response.statusCode > 299) {
-        this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficanteInterceptor error sending meta to trafficante')
-      }
-    }, (err) => {
-      this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending meta to trafficante')
-    })
+      }).then((response) => {
+        if (response.statusCode > 299) {
+          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficanteInterceptor error sending meta to trafficante')
+        }
+      }, (err) => {
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending meta to trafficante')
+      })
+    }
 
     this.handler.onResponseEnd?.(controller, trailers)
   }
@@ -337,6 +355,18 @@ export function createTrafficanteInterceptor (options: TrafficanteOptions = defa
   if (!validatedOptions.labels) {
     validatedOptions.labels = defaultTrafficanteOptions.labels
   }
+  if (validatedOptions.matchingDomains) {
+    if (!Array.isArray(validatedOptions.matchingDomains) || validatedOptions.matchingDomains.length === 0) {
+      throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_SKIPPING_DOMAINS')
+    }
+
+    for (const skippingDomain of validatedOptions.matchingDomains) {
+      if (typeof skippingDomain !== 'string' || skippingDomain.length === 0) {
+        throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_SKIPPING_DOMAINS')
+      }
+    }
+  }
+
   validatedOptions.skippingRequestHeaders = optionsRest.skippingRequestHeaders ?? defaultTrafficanteOptions.skippingRequestHeaders
   validatedOptions.skippingResponseHeaders = optionsRest.skippingResponseHeaders ?? defaultTrafficanteOptions.skippingResponseHeaders
   validatedOptions.interceptResponseStatusCodes = interceptResponseStatusCodes ?? defaultTrafficanteOptions.interceptResponseStatusCodes

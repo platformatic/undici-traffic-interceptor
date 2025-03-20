@@ -20,7 +20,7 @@ const defaultOptions: TrafficanteOptions = {
     url: '',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/requests'
-  }
+  },
 }
 
 describe('TrafficanteInterceptor', () => {
@@ -123,6 +123,42 @@ describe('TrafficanteInterceptor', () => {
 
     await Promise.all(tasks)
   })
+
+  test('should not pass request data to trafficante due to request domain filter', async (t) => {
+    const app = await createApp({ t })
+    const trafficante = await createTrafficante({ t })
+    const agent = new Agent().compose(createTrafficanteInterceptor({
+      ...structuredClone(defaultOptions),
+      trafficante: {
+        ...defaultOptions.trafficante,
+        url: trafficante.url,
+      },
+      logger: trafficante.logger,
+      matchingDomains: ['.local', '.plt.local']
+    }))
+
+    const origins = ['https://plt.local', 'https://sub.plt.local', 'http://sub.sub.plt.local', 'http://local:3000']
+    const path = '/dummy'
+
+    for (const origin of origins) {
+      const response = await request(`${app.host}${path}`, {
+        dispatcher: agent,
+        method: 'GET',
+        headers: {
+          Origin: origin
+        }
+      })
+
+      assert.equal(response.statusCode, 200)
+      assert.equal(await response.body.text(), `[${path} response]`)
+
+      await waitForLogMessage(trafficante.loggerSpy, (message) => {
+        return message.msg === 'skip by request' && message.request?.headers['Origin'] === origin
+      })
+    }
+  })
+
+  // TODO matchingDomains
 
   test('should not pass request data to bloom filter but only meta, with concurrency', async (t) => {
     const app = await createApp({ t })
@@ -499,6 +535,7 @@ describe('TrafficanteInterceptor', () => {
       signal: abortController.signal
     })
 
+    // @ts-ignore
     assert.rejects(response.body.dump({ signal: abortController.signal }))
 
     await waitForLogMessage(trafficante.loggerSpy, (message) => {

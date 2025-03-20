@@ -53,6 +53,7 @@ export interface TrafficanteOptions {
   interceptResponse?: (context: InterceptorContext) => boolean
 
   // Override default headers and status code checks
+  matchingDomains?: string[]
   skippingRequestHeaders?: string[]
   skippingResponseHeaders?: string[]
   interceptResponseStatusCodes?: (code: number) => boolean
@@ -61,6 +62,10 @@ export interface TrafficanteOptions {
 
 export function interceptRequest (context: InterceptorContext): boolean {
   if (context.request.method as Dispatcher.HttpMethod !== INTERCEPT_REQUEST_METHOD_GET) {
+    return false
+  }
+
+  if (!interceptByDomain(context.request.domain, context.options.matchingDomains)) {
     return false
   }
 
@@ -88,11 +93,6 @@ export function interceptRequest (context: InterceptorContext): boolean {
 
 export function interceptResponse (context: InterceptorContext): boolean {
   let hasContentLength = false
-
-  // skip by request method too
-  if (context.request.method as Dispatcher.HttpMethod !== INTERCEPT_REQUEST_METHOD_GET) {
-    return false
-  }
 
   if (!context.options.interceptResponseStatusCodes!(context.response.statusCode)) {
     return false
@@ -136,4 +136,23 @@ export function interceptResponse (context: InterceptorContext): boolean {
   }
 
   return true
+}
+
+// domain is a string like 'sub.plt.local', without protocol and port
+export function interceptByDomain (domain: string | undefined, matchingDomains: string[] | undefined): boolean {
+  if (!matchingDomains) {
+    return true
+  }
+
+  if (!domain) {
+    return false
+  }
+
+  for (let i = 0; i < matchingDomains.length; i++) {
+    if (domain.endsWith(matchingDomains[i])) {
+      return true
+    }
+  }
+
+  return false
 }
