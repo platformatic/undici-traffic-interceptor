@@ -16,7 +16,7 @@ import {
 } from './trafficante.ts'
 import { BloomFilter } from './bloom-filter.ts'
 import type { Logger } from 'pino'
-import { extractDomain } from './utils.ts'
+import { extractDomain, extractOrigin } from './utils.ts'
 
 const defaultTrafficanteOptions: TrafficanteOptions = {
   bloomFilter: {
@@ -49,6 +49,7 @@ export type InterceptorContext = {
     timestamp: number
     url?: string // domain name + path / no query string
     domain?: string // domain name
+    origin?: string // origin
     hash?: bigint // hash of request.url
   }
 
@@ -140,10 +141,12 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     controller.abort = this.onRequestAbort.bind(this)
 
+    this.context.request.origin = extractOrigin(this.context.dispatchOptions.origin as string, this.context.dispatchOptions.headers as IncomingHttpHeaders)
     if (this.context.options.matchingDomains) {
-      this.context.request.domain = extractDomain(this.context.dispatchOptions.origin as string)
+      this.context.request.domain = extractDomain(this.context.request.origin)
     }
-    this.context.request.url = (this.context.dispatchOptions.origin as string) + (this.context.dispatchOptions.path as string || '/')
+
+    this.context.request.url = this.context.request.origin + (this.context.dispatchOptions.path as string || '/')
     this.context.request.headers = this.context.dispatchOptions.headers as IncomingHttpHeaders
     this.context.request.method = this.context.dispatchOptions.method as Dispatcher.HttpMethod
     this.context.interceptRequest = this.interceptRequest(this.context)

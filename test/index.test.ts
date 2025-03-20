@@ -168,32 +168,33 @@ describe('TrafficanteInterceptor', () => {
         url: trafficante.url,
       },
       logger: trafficante.logger,
-      matchingDomains: ['.sub.plt', '.plt.local', 'localhost']
+      matchingDomains: ['.sub.plt', '.plt.local']
     }))
 
-    // note: use a different path to trigger sending body
-    const requests = [
-      { origin: 'https://sub.plt', path: '/1' },
-      { origin: 'https://plt.local', path: '/2' },
-      { origin: 'http://localhost:3000', path: '/3' },
+    const origins = [
+      'https://sub.plt',
+      'https://plt.local',
+      'http://sub1.sub2.plt.local',
+      'http://sub1.sub2.plt.local:3001'
     ]
+    const path = '/api'
 
-    for (const r of requests) {
-      const response = await request(`${app.host}${r.path}`, {
+    for (const origin of origins) {
+      const response = await request(`${app.host}${path}`, {
         dispatcher: agent,
         method: 'GET',
         headers: {
-          Origin: r.origin
+          Origin: origin
         }
       })
 
       assert.equal(response.statusCode, 200)
-      assert.equal(await response.body.text(), `[${r.path} response]`)
+      assert.equal(await response.body.text(), `[${path} response]`)
 
       await waitForLogMessage(trafficante.loggerSpy, (message) => {
         if (message.msg === 'trafficante received body') {
           const requestData = JSON.parse(message.headers['x-request-data'])
-          return requestData.headers['Origin'] === r.origin
+          return requestData.headers['Origin'] === origin
         }
         return false
       })

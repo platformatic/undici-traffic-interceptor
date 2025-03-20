@@ -1,3 +1,5 @@
+import type { IncomingHttpHeaders } from 'http'
+
 export function extractDomain (origin: string | undefined): string | undefined {
   if (!origin) {
     return undefined
@@ -11,4 +13,17 @@ export function extractDomain (origin: string | undefined): string | undefined {
   }
 
   return '.' + origin.slice(start)
+}
+
+export function extractOrigin (origin: string | undefined, headers: IncomingHttpHeaders): string | undefined {
+  if (!headers) {
+    return origin
+  }
+  if (headers['Origin']) {
+    return headers['Origin'] as string
+  }
+  if (headers['origin']) {
+    return headers['origin'] as string
+  }
+  return origin
 }
