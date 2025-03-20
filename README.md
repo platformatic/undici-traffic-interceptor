@@ -115,6 +115,9 @@ interface TrafficanteOptions {
   // Custom interceptor functions
   interceptRequest?: (context: InterceptorContext) => boolean;
   interceptResponse?: (context: InterceptorContext) => boolean;
+
+  // Domains that will be intercepted, must be lowercase
+  matchingDomains?: string[];
   
   // Headers that will cause requests/responses to be skipped, must be lowercase
   skippingRequestHeaders?: string[];
@@ -127,6 +130,34 @@ interface TrafficanteOptions {
   skippingCookieSessionIds?: string[];
 }
 ```
+
+#### matchingDomains
+
+Domains that will be intercepted, extracted from the request origin, must be lowercase, starting with a dot.
+The matching origin is extracted from the request `Origin` header if present, or from the request url; protocol and port are ignored.
+Default is empty, which means all domains will be intercepted.
+
+Examples:
+
+```typescript
+const agent = new Agent().compose(createTrafficanteInterceptor({
+  // ...
+  matchingDomains: ['.sub.local', '.plt.local']
+}))
+
+// Matching domains
+request('https://plt.local/api', { dispatcher: agent })
+request('https://sub.local/products', { dispatcher: agent })
+request('https://sub.local:3001/products', { dispatcher: agent })
+request('https://localhost:3000/users', { headers: { Origin: 'https://plt.local' }, dispatcher: agent })
+
+// Not matching domains
+request('https://example.com/', { dispatcher: agent })
+request('https://local:3001/', { dispatcher: agent })
+request('https://plt.local/api', { headers: { Origin: 'https://platformatic.dev' }, dispatcher: agent })
+
+```
+
 
 ### Default Skip Conditions
 

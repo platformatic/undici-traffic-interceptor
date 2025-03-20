@@ -25,10 +25,11 @@
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
         <label for="metricSelect">Show metric:</label>
         <select id="metricSelect" style="padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
-            <option value="all">All (min/avg/max)</option>
             <option value="min">Minimum</option>
             <option value="avg">Average</option>
             <option value="max">Maximum</option>
+            <option value="total">Total</option>
+            <option value="reqsPerSecond">Requests per second</option>
         </select>
     </div>
     <div class="chart-container">
@@ -39,7 +40,7 @@
         let globalChart = null;
         let globalData = null;
 
-        function createChart(data, selectedMetric = 'all') {
+        function createChart(data, selectedMetric = 'avg') {
             if (globalChart) {
                 globalChart.destroy();
             }
@@ -59,7 +60,7 @@
 
             const datasets = [];
             const comparisonKeys = Object.keys(testCases[0].data);
-            const metrics = selectedMetric === 'all' ? ['min', 'avg', 'max'] : [selectedMetric];
+            const metrics = [selectedMetric];
             const colors = {
                 [comparisonKeys[0]]: [255, 99, 132],
                 [comparisonKeys[1]]: [54, 162, 235]
