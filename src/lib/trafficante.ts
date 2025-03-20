@@ -149,7 +149,8 @@ export function interceptByDomain (domain: string | undefined, matchingDomains: 
   }
 
   for (let i = 0; i < matchingDomains.length; i++) {
-    if (domain.endsWith(matchingDomains[i])) {
+    if ((domain.length === matchingDomains[i].length && domain === matchingDomains[i]) ||
+      (domain.length > matchingDomains[i].length && domain.endsWith(matchingDomains[i]))) {
       return true
     }
   }
