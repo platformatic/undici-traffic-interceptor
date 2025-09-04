@@ -40,8 +40,8 @@ const agent = new Agent().compose(createTrafficInterceptor({
     errorRate: 0.01,
   },
   maxResponseSize: 10 * 1024, // 10KB
-  traffic: {
-    url: 'http://traffic-server.example.com',
+  reqOptions: {
+    url: 'http://icc-server.example.com',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/requests'
   }
@@ -89,13 +89,13 @@ const agent = new Agent().compose(createTrafficInterceptor({
 The interceptor accepts the following configuration options:
 
 ```typescript
-interface TrafficOptions {
+interface TrafficInterceptorOptions {
   // Optional logger instance (pino compatible)
   logger?: Logger;
   
-  // Traffic server configuration
-  traffic: {
-    url: string;              // Base URL of the traffic server
+  // ICC server configuration
+  reqOptions: {
+    url: string;              // Base URL of the icc server
     pathSendBody: string;     // Path for sending response bodies
     pathSendMeta: string;     // Path for sending metadata
   };
@@ -176,7 +176,7 @@ By default, the interceptor will skip:
 
 ## API Reference
 
-### createTrafficInterceptor(options: TrafficOptions)
+### createTrafficInterceptor(options: TrafficInterceptorOptions)
 
 Creates a new Undici interceptor with the specified options. Returns a function that can be used with Undici's `compose()` method.
 

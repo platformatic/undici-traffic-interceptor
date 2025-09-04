@@ -2,11 +2,11 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { request, Agent } from 'undici'
 
-import createTrafficInterceptor, { type TrafficOptions } from '../src/index.ts'
+import createTrafficInterceptor, { type TrafficInterceptorOptions } from '../src/index.ts'
 
-import { createApp, createTraffic, waitForLogMessage } from './helper.ts'
+import { createApp, createIcc, waitForLogMessage } from './helper.ts'
 
-const defaultOptions: TrafficOptions = {
+const defaultOptions: TrafficInterceptorOptions = {
   labels: {
     applicationId: 'app-1',
     taxonomyId: 'tax-1',
@@ -16,7 +16,7 @@ const defaultOptions: TrafficOptions = {
     errorRate: 0.01,
   },
   maxResponseSize: 10 * 1024,
-  traffic: {
+  reqOptions: {
     url: '',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/requests'
@@ -24,16 +24,16 @@ const defaultOptions: TrafficOptions = {
 }
 
 describe('TrafficInterceptor', () => {
-  test('should intercept request/response and send data to traffic', async (t) => {
+  test('should intercept request/response and send data to icc', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const response = await request(`${app.host}/dummy`, {
@@ -50,10 +50,10 @@ describe('TrafficInterceptor', () => {
     assert.equal(response.headers['x-request-headers-user-agent'], 'test-user-agent')
     assert.equal(response.headers['x-request-headers-content-type'], 'application/json')
 
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
-      if (message.msg === 'traffic received body') {
+    await waitForLogMessage(icc.loggerSpy, (message) => {
+      if (message.msg === 'icc received body') {
         assert.equal(message.body, '[/dummy response]')
-        assert.equal(message.headers['x-traffic-labels'], JSON.stringify(defaultOptions.labels))
+        assert.equal(message.headers['x-labels'], JSON.stringify(defaultOptions.labels))
         const requestData = JSON.parse(message.headers['x-request-data'])
         assert.equal(requestData.url, `http://localhost:${app.port}/dummy`)
         assert.equal(requestData.headers['Content-Type'], 'application/json')
@@ -65,10 +65,10 @@ describe('TrafficInterceptor', () => {
       }
       return false
     })
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
-      if (message.msg === 'traffic received meta') {
+    await waitForLogMessage(icc.loggerSpy, (message) => {
+      if (message.msg === 'icc received meta') {
         assert.ok(typeof message.body.timestamp === 'number')
-        assert.equal(message.headers['x-traffic-labels'], JSON.stringify(defaultOptions.labels))
+        assert.equal(message.headers['x-labels'], JSON.stringify(defaultOptions.labels))
         assert.equal(message.body.request.url, `http://localhost:${app.port}/dummy`)
         assert.equal(message.body.response.code, 200)
         assert.equal(message.body.response.bodyHash, '5034874602790624239')
@@ -79,16 +79,16 @@ describe('TrafficInterceptor', () => {
     })
   })
 
-  test('should not pass request data to traffic due to request headers, with concurrency', async (t) => {
+  test('should not pass request data to icc due to request headers, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const skippingRequestHeaders = {
@@ -112,7 +112,7 @@ describe('TrafficInterceptor', () => {
         assert.equal(response.statusCode, 200)
         assert.equal(await response.body.text(), '[/dummy response]')
 
-        await waitForLogMessage(traffic.loggerSpy, (message) => {
+        await waitForLogMessage(icc.loggerSpy, (message) => {
           return message.msg === 'skip by request' &&
             Object.keys(message.request?.headers ?? {}).some(requestHeader => {
               return requestHeader.toLowerCase() === header.toLowerCase()
@@ -124,16 +124,16 @@ describe('TrafficInterceptor', () => {
     await Promise.all(tasks)
   })
 
-  test('should not pass request data to traffic due to request domain filter', async (t) => {
+  test('should not pass request data to icc due to request domain filter', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger,
+      logger: icc.logger,
       matchingDomains: ['.sub.local', '.plt.local']
     }))
 
@@ -152,22 +152,22 @@ describe('TrafficInterceptor', () => {
       assert.equal(response.statusCode, 200)
       assert.equal(await response.body.text(), `[${path} response]`)
 
-      await waitForLogMessage(traffic.loggerSpy, (message) => {
+      await waitForLogMessage(icc.loggerSpy, (message) => {
         return message.msg === 'skip by request' && message.request?.headers['Origin'] === origin
       })
     }
   })
 
-  test('should pass request data to traffic with matching domains', async (t) => {
+  test('should pass request data to icc with matching domains', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger,
+      logger: icc.logger,
       matchingDomains: ['.sub.plt', '.plt.local']
     }))
 
@@ -191,8 +191,8 @@ describe('TrafficInterceptor', () => {
       assert.equal(response.statusCode, 200)
       assert.equal(await response.body.text(), `[${path} response]`)
 
-      await waitForLogMessage(traffic.loggerSpy, (message) => {
-        if (message.msg === 'traffic received body') {
+      await waitForLogMessage(icc.loggerSpy, (message) => {
+        if (message.msg === 'icc received body') {
           const requestData = JSON.parse(message.headers['x-request-data'])
           return requestData.headers['Origin'] === origin
         }
@@ -203,14 +203,14 @@ describe('TrafficInterceptor', () => {
 
   test('should not pass request data to bloom filter but only meta, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const path = '/api/test'
@@ -244,11 +244,11 @@ describe('TrafficInterceptor', () => {
 
     for (let i = 0; i < 10; i++) {
       await Promise.all([
-        waitForLogMessage(traffic.loggerSpy, (message) => {
+        waitForLogMessage(icc.loggerSpy, (message) => {
           return message.msg === 'skip by bloom filter' && message.request?.headers['x-counter'] === i.toString()
         }),
-        waitForLogMessage(traffic.loggerSpy, (message) => {
-          if (message.msg === 'traffic received meta') {
+        waitForLogMessage(icc.loggerSpy, (message) => {
+          if (message.msg === 'icc received meta') {
             assert.equal(message.body.request.url, `http://localhost:${app.port}${path}`)
             return true
           }
@@ -258,16 +258,16 @@ describe('TrafficInterceptor', () => {
     }
   })
 
-  test('should not pass request data to traffic due to request method, with concurrency', async (t) => {
+  test('should not pass request data to icc due to request method, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const skippingRequestMethods = [
@@ -288,7 +288,7 @@ describe('TrafficInterceptor', () => {
 
         assert.equal(response.statusCode, 200)
 
-        await waitForLogMessage(traffic.loggerSpy, (message) => {
+        await waitForLogMessage(icc.loggerSpy, (message) => {
           return message.msg === 'skip by request' &&
             message.request?.method === method
         })
@@ -298,16 +298,16 @@ describe('TrafficInterceptor', () => {
     await Promise.all(tasks)
   })
 
-  test('should pass request data to traffic on missing or empty request headers', async (t) => {
+  test('should pass request data to icc on missing or empty request headers', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     {
@@ -332,16 +332,16 @@ describe('TrafficInterceptor', () => {
     }
   })
 
-  test('should pass request data to traffic on cookies that does not contain known auth tokens', async (t) => {
+  test('should pass request data to icc on cookies that does not contain known auth tokens', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const response = await request(`${app.host}/dummy`, {
@@ -355,21 +355,21 @@ describe('TrafficInterceptor', () => {
     assert.equal(response.statusCode, 200)
     assert.equal(await response.body.text(), '[/dummy response]')
 
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
-      return message.msg === 'traffic received meta'
+    await waitForLogMessage(icc.loggerSpy, (message) => {
+      return message.msg === 'icc received meta'
     })
   })
 
-  test('should not pass request data to traffic due to request cookies with known auth tokens, with concurrency', async (t) => {
+  test('should not pass request data to icc due to request cookies with known auth tokens, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const skippingCookies = [
@@ -396,7 +396,7 @@ describe('TrafficInterceptor', () => {
         assert.equal(response.statusCode, 200)
         assert.equal(await response.body.text(), '[/dummy response]')
 
-        await waitForLogMessage(traffic.loggerSpy, (message) => {
+        await waitForLogMessage(icc.loggerSpy, (message) => {
           return message.msg === 'skip by request' &&
             message.request?.headers?.['Cookie']?.includes(cookie)
         })
@@ -406,16 +406,16 @@ describe('TrafficInterceptor', () => {
     await Promise.all(tasks)
   })
 
-  test('should not pass response data to traffic due to response status code', async (t) => {
+  test('should not pass response data to icc due to response status code', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const requests = [
@@ -438,27 +438,27 @@ describe('TrafficInterceptor', () => {
         query: req.qs
       })
 
-      assert.ok(!traffic.loggerSpy.buffer.some(log => {
-        return log.msg === 'traffic received body'
-      }), 'traffic must not receive body')
-      assert.ok(!traffic.loggerSpy.buffer.some(log => {
-        return log.msg === 'traffic received meta'
-      }), 'traffic must not receive meta')
+      assert.ok(!icc.loggerSpy.buffer.some(log => {
+        return log.msg === 'icc received body'
+      }), 'icc must not receive body')
+      assert.ok(!icc.loggerSpy.buffer.some(log => {
+        return log.msg === 'icc received meta'
+      }), 'icc must not receive meta')
 
-      traffic.loggerSpy.reset()
+      icc.loggerSpy.reset()
     }
   })
 
-  test('should not pass response data to traffic due to response headers, with concurrency', async (t) => {
+  test('should not pass response data to icc due to response headers, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const skippingResponseHeaders = {
@@ -477,7 +477,7 @@ describe('TrafficInterceptor', () => {
           query: { responseHeader: header, responseHeaderValue: skippingResponseHeaders[header] }
         })
 
-        await waitForLogMessage(traffic.loggerSpy, (message) => {
+        await waitForLogMessage(icc.loggerSpy, (message) => {
           return message.msg === 'skip by response' &&
             message.response?.headers[header.toLowerCase()] === skippingResponseHeaders[header]
         })
@@ -487,17 +487,17 @@ describe('TrafficInterceptor', () => {
     await Promise.all(tasks)
   })
 
-  test('should not pass response data to traffic due to response size', async (t) => {
+  test('should not pass response data to icc due to response size', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
       maxResponseSize: 10,
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     await request(`${app.host}/any`, {
@@ -506,21 +506,21 @@ describe('TrafficInterceptor', () => {
       query: { responseCode: 200, responseBody: 'something bigger than 10 bytes' }
     })
 
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
+    await waitForLogMessage(icc.loggerSpy, (message) => {
       return message.msg === 'skip by response'
     })
   })
 
-  test('should not pass response data to traffic due to response headers cookies, with concurrency', async (t) => {
+  test('should not pass response data to icc due to response headers cookies, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const skippingCookies = [
@@ -542,7 +542,7 @@ describe('TrafficInterceptor', () => {
           query: { responseHeader: 'Set-Cookie', responseHeaderValue: cookie }
         })
 
-        await waitForLogMessage(traffic.loggerSpy, (message) => {
+        await waitForLogMessage(icc.loggerSpy, (message) => {
           return message.msg === 'skip by response' &&
             message.response?.headers?.['set-cookie']?.includes(cookie)
         })
@@ -554,14 +554,14 @@ describe('TrafficInterceptor', () => {
 
   test('should handle abort request', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t })
+    const icc = await createIcc({ t })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     const abortController = new AbortController()
@@ -579,30 +579,30 @@ describe('TrafficInterceptor', () => {
     // @ts-ignore
     assert.rejects(response.body.dump({ signal: abortController.signal }))
 
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
+    await waitForLogMessage(icc.loggerSpy, (message) => {
       return message.msg === 'TrafficInterceptor onRequestStart'
     })
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
+    await waitForLogMessage(icc.loggerSpy, (message) => {
       return message.msg === 'TrafficInterceptor onRequestAbort'
     })
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
+    await waitForLogMessage(icc.loggerSpy, (message) => {
       return message.msg === 'TrafficInterceptor onResponseData'
     })
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
+    await waitForLogMessage(icc.loggerSpy, (message) => {
       return message.msg === 'TrafficInterceptor onResponseEnd'
     })
   })
 
-  test('should handle error response from traffic meta', async (t) => {
+  test('should handle error response from icc meta', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t, errorMeta: true })
+    const icc = await createIcc({ t, errorMeta: true })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     await request(`${app.host}/echo`, {
@@ -610,23 +610,23 @@ describe('TrafficInterceptor', () => {
       method: 'GET'
     })
 
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
-      return message.msg === 'TrafficInterceptor error sending meta to traffic' &&
+    await waitForLogMessage(icc.loggerSpy, (message) => {
+      return message.msg === 'TrafficInterceptor error sending meta to icc' &&
         message.request?.url === `http://localhost:${app.port}/echo` &&
         message.response?.code === 500
     })
   })
 
-  test('should handle error response from traffic body', async (t) => {
+  test('should handle error response from icc body', async (t) => {
     const app = await createApp({ t })
-    const traffic = await createTraffic({ t, errorBody: true })
+    const icc = await createIcc({ t, errorBody: true })
     const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      traffic: {
-        ...defaultOptions.traffic,
-        url: traffic.url,
+      reqOptions: {
+        ...defaultOptions.reqOptions,
+        url: icc.url,
       },
-      logger: traffic.logger
+      logger: icc.logger
     }))
 
     await request(`${app.host}/echo`, {
@@ -634,8 +634,8 @@ describe('TrafficInterceptor', () => {
       method: 'GET'
     })
 
-    await waitForLogMessage(traffic.loggerSpy, (message) => {
-      return message.msg === 'TrafficInterceptor error sending body to traffic' &&
+    await waitForLogMessage(icc.loggerSpy, (message) => {
+      return message.msg === 'TrafficInterceptor error sending body to icc' &&
         message.request?.url === `http://localhost:${app.port}/echo` &&
         message.response?.code === 500
     })

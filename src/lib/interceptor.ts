@@ -5,7 +5,7 @@ import { xxh3 } from '@node-rs/xxhash'
 import {
   interceptRequest,
   interceptResponse,
-  type TrafficOptions,
+  type TrafficInterceptorOptions,
   SKIPPING_REQUEST_HEADERS,
   SKIPPING_RESPONSE_HEADERS,
   INTERCEPT_RESPONSE_STATUS_CODES,
@@ -18,13 +18,13 @@ import { BloomFilter } from './bloom-filter.ts'
 import type { Logger } from 'pino'
 import { extractDomain, extractOrigin } from './utils.ts'
 
-const defaultTrafficOptions: TrafficOptions = {
+const defaultTrafficInterceptorOptions: TrafficInterceptorOptions = {
   bloomFilter: {
     size: DEFAULT_BLOOM_FILTER_SIZE,
     errorRate: DEFAULT_BLOOM_FILTER_ERROR_RATE,
   },
   maxResponseSize: DEFAULT_MAX_RESPONSE_SIZE,
-  traffic: {
+  reqOptions: {
     url: '',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/requests',
@@ -38,7 +38,7 @@ const defaultTrafficOptions: TrafficOptions = {
 
 export type InterceptorContext = {
   dispatchOptions: Partial<Dispatcher.DispatchOptions>,
-  options: TrafficOptions,
+  options: TrafficInterceptorOptions,
   hasher: xxh3.Xxh3,
   logger?: Logger,
 
@@ -85,7 +85,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
 
   constructor (
     dispatchOptions: Partial<Dispatcher.DispatchOptions>,
-    options: TrafficOptions,
+    options: TrafficInterceptorOptions,
     bloomFilter: BloomFilter,
     client: Client,
     handler: Dispatcher.DispatchHandler
@@ -196,8 +196,8 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
     }
 
     if (this.context.sendBody) {
-      // Send data to traffic
-      // Don's send response body to traffic when request is intercepted due to request headers or bloom filter
+      // Send data to icc
+      // Don's send response body to icc when request is intercepted due to request headers or bloom filter
       this.writer = new PassThrough()
       this.bodySendController = new AbortController()
       this.writer.on('error', (error) => {
@@ -206,12 +206,12 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
       })
 
       this.send = this.client.request({
-        path: this.context.options.traffic.pathSendBody,
+        path: this.context.options.reqOptions.pathSendBody,
         method: 'POST',
         headers: {
           'content-type': this.context.response.headers['content-type'] || 'application/octet-stream',
           'content-length': (this.context.response.headers['content-length'] ?? '0').toString(),
-          'x-traffic-labels': JSON.stringify(this.context.labels),
+          'x-labels': JSON.stringify(this.context.labels),
           'x-request-data': JSON.stringify({ url: this.context.request.url, headers: this.context.request.headers }),
           'x-response-data': JSON.stringify({ headers: this.context.response.headers }),
         },
@@ -220,7 +220,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
       })
 
       this.send.catch((err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to traffic #1')
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to icc #1')
       })
     }
 
@@ -272,7 +272,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
 
       this.send.then((response) => {
         if (response.statusCode > 299) {
-          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending body to traffic')
+          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending body to icc')
         }
       }, (err) => {
         this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error finalizing response body send')
@@ -283,10 +283,10 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
       this.context.response.hash = this.context.hasher.digest()
 
       // No redaction on headers since if there are auth headers, the request/response will be skipped
-      this.context.logger?.debug({ url: this.context.request.url }, 'send meta to traffic')
+      this.context.logger?.debug({ url: this.context.request.url }, 'send meta to icc')
 
       this.client.request({
-        path: this.context.options.traffic.pathSendMeta,
+        path: this.context.options.reqOptions.pathSendMeta,
         method: 'POST',
         body: JSON.stringify({
           timestamp: this.context.request.timestamp,
@@ -300,15 +300,15 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
           }
         }),
         headers: {
-          'x-traffic-labels': JSON.stringify(this.context.labels),
+          'x-labels': JSON.stringify(this.context.labels),
           'content-type': 'application/json',
         }
       }).then((response) => {
         if (response.statusCode > 299) {
-          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending meta to traffic')
+          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending meta to icc')
         }
       }, (err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending meta to traffic')
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending meta to icc')
       })
     }
 
@@ -331,7 +331,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
 
     if (this.send) {
       this.send.catch((err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to traffic #2')
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to icc #2')
         if (this.writer && !this.writer.destroyed) {
           this.writer.destroy(err)
         }
@@ -342,9 +342,9 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
   }
 }
 
-export function createTrafficInterceptor (options: TrafficOptions = defaultTrafficOptions): Dispatcher.DispatchInterceptor {
+export function createTrafficInterceptor (options: TrafficInterceptorOptions = defaultTrafficInterceptorOptions): Dispatcher.DispatchInterceptor {
   const { logger, interceptResponseStatusCodes, ...optionsRest } = options
-  const validatedOptions: TrafficOptions = structuredClone(optionsRest)
+  const validatedOptions: TrafficInterceptorOptions = structuredClone(optionsRest)
 
   // Validate options
   if (!validatedOptions.bloomFilter || typeof validatedOptions.bloomFilter.size !== 'number' || validatedOptions.bloomFilter.size <= 0) {
@@ -354,15 +354,15 @@ export function createTrafficInterceptor (options: TrafficOptions = defaultTraff
     throw new Error('TRAFFIC_INTERCEPTOR_INVALID_BLOOM_FILTER_ERROR_RATE')
   }
   if (validatedOptions.maxResponseSize === undefined) {
-    validatedOptions.maxResponseSize = defaultTrafficOptions.maxResponseSize
+    validatedOptions.maxResponseSize = defaultTrafficInterceptorOptions.maxResponseSize
   } else if (typeof validatedOptions.maxResponseSize !== 'number' || validatedOptions.maxResponseSize <= 0) {
     throw new Error('TRAFFIC_INTERCEPTOR_INVALID_MAX_RESPONSE_SIZE')
   }
-  if (!validatedOptions.traffic || typeof validatedOptions.traffic.url !== 'string' || validatedOptions.traffic.url.length === 0) {
-    throw new Error('TRAFFIC_INTERCEPTOR_INVALID_TRAFFIC_URL')
+  if (!validatedOptions.reqOptions || typeof validatedOptions.reqOptions.url !== 'string' || validatedOptions.reqOptions.url.length === 0) {
+    throw new Error('TRAFFIC_INTERCEPTOR_INVALID_REQUEST_URL')
   }
   if (!validatedOptions.labels) {
-    validatedOptions.labels = defaultTrafficOptions.labels
+    validatedOptions.labels = defaultTrafficInterceptorOptions.labels
   }
   if (validatedOptions.matchingDomains) {
     if (!Array.isArray(validatedOptions.matchingDomains) || validatedOptions.matchingDomains.length === 0) {
@@ -376,15 +376,15 @@ export function createTrafficInterceptor (options: TrafficOptions = defaultTraff
     }
   }
 
-  validatedOptions.skippingRequestHeaders = optionsRest.skippingRequestHeaders ?? defaultTrafficOptions.skippingRequestHeaders
-  validatedOptions.skippingResponseHeaders = optionsRest.skippingResponseHeaders ?? defaultTrafficOptions.skippingResponseHeaders
-  validatedOptions.interceptResponseStatusCodes = interceptResponseStatusCodes ?? defaultTrafficOptions.interceptResponseStatusCodes
-  validatedOptions.skippingCookieSessionIds = optionsRest.skippingCookieSessionIds ?? defaultTrafficOptions.skippingCookieSessionIds
+  validatedOptions.skippingRequestHeaders = optionsRest.skippingRequestHeaders ?? defaultTrafficInterceptorOptions.skippingRequestHeaders
+  validatedOptions.skippingResponseHeaders = optionsRest.skippingResponseHeaders ?? defaultTrafficInterceptorOptions.skippingResponseHeaders
+  validatedOptions.interceptResponseStatusCodes = interceptResponseStatusCodes ?? defaultTrafficInterceptorOptions.interceptResponseStatusCodes
+  validatedOptions.skippingCookieSessionIds = optionsRest.skippingCookieSessionIds ?? defaultTrafficInterceptorOptions.skippingCookieSessionIds
 
   validatedOptions.logger = logger
 
   const bloomFilter = new BloomFilter(validatedOptions.bloomFilter.size, validatedOptions.bloomFilter.errorRate)
-  const client = new Client(validatedOptions.traffic.url)
+  const client = new Client(validatedOptions.reqOptions.url)
 
   return function trafficInterceptor (dispatch: Dispatcher['dispatch']): Dispatcher['dispatch'] {
     return function InterceptedDispatch (
