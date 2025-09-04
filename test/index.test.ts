@@ -51,7 +51,7 @@ describe('TrafficInterceptor', () => {
     assert.equal(response.headers['x-request-headers-content-type'], 'application/json')
 
     await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
-      if (message.msg === 'traffic inspectorreceived body') {
+      if (message.msg === 'traffic inspector received body') {
         assert.equal(message.body, '[/dummy response]')
         assert.equal(message.headers['x-labels'], JSON.stringify(defaultOptions.labels))
         const requestData = JSON.parse(message.headers['x-request-data'])
@@ -66,7 +66,7 @@ describe('TrafficInterceptor', () => {
       return false
     })
     await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
-      if (message.msg === 'traffic inspectorreceived meta') {
+      if (message.msg === 'traffic inspector received meta') {
         assert.ok(typeof message.body.timestamp === 'number')
         assert.equal(message.headers['x-labels'], JSON.stringify(defaultOptions.labels))
         assert.equal(message.body.request.url, `http://localhost:${app.port}/dummy`)
@@ -192,7 +192,7 @@ describe('TrafficInterceptor', () => {
       assert.equal(await response.body.text(), `[${path} response]`)
 
       await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
-        if (message.msg === 'traffic inspectorreceived body') {
+        if (message.msg === 'traffic inspector received body') {
           const requestData = JSON.parse(message.headers['x-request-data'])
           return requestData.headers['Origin'] === origin
         }
@@ -248,7 +248,7 @@ describe('TrafficInterceptor', () => {
           return message.msg === 'skip by bloom filter' && message.request?.headers['x-counter'] === i.toString()
         }),
         waitForLogMessage(trafficInspector.loggerSpy, (message) => {
-          if (message.msg === 'traffic inspectorreceived meta') {
+          if (message.msg === 'traffic inspector received meta') {
             assert.equal(message.body.request.url, `http://localhost:${app.port}${path}`)
             return true
           }
@@ -356,7 +356,7 @@ describe('TrafficInterceptor', () => {
     assert.equal(await response.body.text(), '[/dummy response]')
 
     await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
-      return message.msg === 'traffic inspectorreceived meta'
+      return message.msg === 'traffic inspector received meta'
     })
   })
 
@@ -439,10 +439,10 @@ describe('TrafficInterceptor', () => {
       })
 
       assert.ok(!trafficInspector.loggerSpy.buffer.some(log => {
-        return log.msg === 'traffic inspectorreceived body'
+        return log.msg === 'traffic inspector received body'
       }), 'traffic inspectormust not receive body')
       assert.ok(!trafficInspector.loggerSpy.buffer.some(log => {
-        return log.msg === 'traffic inspectorreceived meta'
+        return log.msg === 'traffic inspector received meta'
       }), 'traffic inspectormust not receive meta')
 
       trafficInspector.loggerSpy.reset()

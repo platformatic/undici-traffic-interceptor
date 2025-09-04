@@ -66,7 +66,7 @@ export async function createTrafficInspector ({
     logger.info({
       body: req.body,
       headers: req.headers
-    }, 'traffic inspectorreceived body')
+    }, 'traffic inspector received body')
     res.send('OK')
   })
 
@@ -79,7 +79,7 @@ export async function createTrafficInspector ({
     logger.info({
       headers: req.headers,
       body: req.body
-    }, 'traffic inspectorreceived meta')
+    }, 'traffic inspector received meta')
     res.send('OK')
   })
 
