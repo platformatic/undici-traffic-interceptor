@@ -1,5 +1,5 @@
 {
-  "name": "@platformatic/undici-traffic-interceptor",
+  "name": "undici-traffic-interceptor",
   "version": "0.1.1",
   "description": "An Undici interceptor that allows you to inspect and filter HTTP traffic based on request and response data",
   "main": "dist/index.js",
