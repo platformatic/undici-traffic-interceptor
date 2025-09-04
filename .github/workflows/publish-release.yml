@@ -28,9 +28,9 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - run: npm install npm -g
       - run: npm install
-      - name: Change version number and sync
+      - name: Change version number
         run: |
-          node build/sync-version.js ${{ inputs.version }}
+          npm version ${{ inputs.version }} --no-git-tag-version
       - name: GIT commit and push all changed files
         run: |
           git config --global user.name "mcollina"
