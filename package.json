@@ -1,6 +1,6 @@
 {
   "name": "undici-traffic-interceptor",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "An Undici interceptor that allows you to inspect and filter HTTP traffic based on request and response data",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
