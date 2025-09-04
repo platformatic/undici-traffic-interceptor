@@ -201,7 +201,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
       this.writer = new PassThrough()
       this.bodySendController = new AbortController()
       this.writer.on('error', (error) => {
-        this.context.logger?.error('TrafficInterceptor response body passthrough error', error)
+        this.context.logger?.error({ err: error }, 'TrafficInterceptor response body passthrough error')
         this.writer?.destroy(error as Error)
       })
 
