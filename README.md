@@ -1,6 +1,6 @@
-# @platformatic/undici-trafficante-interceptor
+# undici-traffic-interceptor
 
-An [Undici](https://github.com/nodejs/undici) interceptor that allows you to inspect and filter HTTP traffic based on request and response data. It uses a Bloom filter to efficiently track and deduplicate requests.
+An [Undici](https://github.com/nodejs/undici) interceptor that allows you to inspect and filter HTTP traffic based on request and response data. It uses a Bloom filter to efficiently track and deduplicate requests. Requests that match the specified criteria are sent to a configured traffic inspector server.
 
 ## Features
 
@@ -18,7 +18,7 @@ An [Undici](https://github.com/nodejs/undici) interceptor that allows you to ins
 ## Installation
 
 ```bash
-npm install @platformatic/undici-trafficante-interceptor
+npm install undici-traffic-interceptor
 ```
 
 ## Usage
@@ -27,10 +27,10 @@ Here's a basic example of how to use the interceptor:
 
 ```typescript
 import { Agent, request } from 'undici'
-import createTrafficanteInterceptor from '@platformatic/undici-trafficante-interceptor'
+import createTrafficInterceptor from 'undici-traffic-interceptor'
 
 // Create an agent with the interceptor
-const agent = new Agent().compose(createTrafficanteInterceptor({
+const agent = new Agent().compose(createTrafficInterceptor({
   labels: {
     applicationId: 'app-1',
     taxonomyId: 'tax-1',
@@ -40,8 +40,8 @@ const agent = new Agent().compose(createTrafficanteInterceptor({
     errorRate: 0.01,
   },
   maxResponseSize: 10 * 1024, // 10KB
-  trafficante: {
-    url: 'http://trafficante-server.example.com',
+  trafficInspectorOptions: {
+    url: 'http://traffic-inspector-server.example.com',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/requests'
   }
@@ -62,7 +62,7 @@ const response = await request('https://api.example.com/data', {
 You can customize the filtering behavior by providing your own interceptor functions:
 
 ```typescript
-const agent = new Agent().compose(createTrafficanteInterceptor({
+const agent = new Agent().compose(createTrafficInterceptor({
   // ... other options ...
   
   // Custom request interceptor
@@ -89,13 +89,13 @@ const agent = new Agent().compose(createTrafficanteInterceptor({
 The interceptor accepts the following configuration options:
 
 ```typescript
-interface TrafficanteOptions {
+interface TrafficInterceptorOptions {
   // Optional logger instance (pino compatible)
   logger?: Logger;
   
-  // Trafficante server configuration
-  trafficante: {
-    url: string;              // Base URL of the trafficante server
+  // Traffic inspector server configuration
+  trafficInspectorOptions: {
+    url: string;              // Base URL of the traffic inspector
     pathSendBody: string;     // Path for sending response bodies
     pathSendMeta: string;     // Path for sending metadata
   };
@@ -140,7 +140,7 @@ Default is empty, which means all domains will be intercepted.
 Examples:
 
 ```typescript
-const agent = new Agent().compose(createTrafficanteInterceptor({
+const agent = new Agent().compose(createTrafficInterceptor({
   // ...
   matchingDomains: ['.sub.local', '.plt.local']
 }))
@@ -158,6 +158,78 @@ request('https://plt.local/api', { headers: { Origin: 'https://platformatic.dev'
 
 ```
 
+### Traffic Interception Configurations
+
+Traffic Interceptor is an HTTP server that receives intercepted requests and responses. You need to provide its URL and the paths for sending request metadata and response bodies.
+
+Traffic Inspector should expose two endpoints:
+1. `POST /requests/hash` - Receives request metadata and response hashes.
+2. `POST /requests/body` - Receives the actual response body along with metadata.
+
+Example of the Traffic Inspector server:
+
+```typescript
+import fastify from 'fastify'
+
+const server = fastify()
+
+server.post('/requests/hash', {
+  schema: {
+    headers: {
+      type: 'object',
+      properties: {
+        'x-labels': { type: 'string' }
+      },
+      required: ['x-labels']
+    },
+    body: {
+      type: 'object',
+      properties: {
+        timestamp: { type: 'number' },
+        request: {
+          type: 'object',
+          properties: {
+            url: { type: 'string' }
+          },
+          required: ['url']
+        },
+        response: {
+          type: 'object',
+          properties: {
+            bodySize: { type: 'number' },
+            bodyHash: { type: 'string' }
+          },
+          required: ['bodySize', 'bodyHash']
+        }
+      },
+      required: ['timestamp', 'request', 'response']
+    }
+  },
+  handler: async (req) => {
+    // Analyze the request body and headers
+  }
+})
+
+server.post('/requests/body', {
+  schema: {
+    headers: {
+      type: 'object',
+      properties: {
+        'x-labels': { type: 'string' },
+        'x-request-data': { type: 'string' },
+        'x-response-data': { type: 'string' }
+      },
+      required: ['x-trafficante-labels', 'x-request-data', 'x-response-data']
+    }
+  },
+  handler: async (req) => {
+    // Analyze the request and response metadata
+    // The body contains the actual response body
+  }
+})
+
+server.listen({ port: 3000, host: '0.0.0.0' })
+```
 
 ### Default Skip Conditions
 
@@ -176,7 +248,7 @@ By default, the interceptor will skip:
 
 ## API Reference
 
-### createTrafficanteInterceptor(options: TrafficanteOptions)
+### createTrafficInterceptor(options: TrafficInterceptorOptions)
 
 Creates a new Undici interceptor with the specified options. Returns a function that can be used with Undici's `compose()` method.
 

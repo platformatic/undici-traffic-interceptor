@@ -1,4 +1,4 @@
-import { createTrafficanteInterceptor } from './lib/interceptor.ts'
-export { type TrafficanteOptions } from './lib/trafficante.ts'
+import { createTrafficInterceptor } from './lib/interceptor.ts'
+export { type TrafficInterceptorOptions } from './lib/traffic.ts'
 
-export { createTrafficanteInterceptor as default }
+export { createTrafficInterceptor as default }

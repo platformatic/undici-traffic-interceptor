@@ -2,11 +2,11 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { request, Agent } from 'undici'
 
-import createTrafficanteInterceptor, { type TrafficanteOptions } from '../src/index.ts'
+import createTrafficInterceptor, { type TrafficInterceptorOptions } from '../src/index.ts'
 
-import { createApp, createTrafficante, waitForLogMessage } from './helper.ts'
+import { createApp, createTrafficInspector, waitForLogMessage } from './helper.ts'
 
-const defaultOptions: TrafficanteOptions = {
+const defaultOptions: TrafficInterceptorOptions = {
   labels: {
     applicationId: 'app-1',
     taxonomyId: 'tax-1',
@@ -16,24 +16,24 @@ const defaultOptions: TrafficanteOptions = {
     errorRate: 0.01,
   },
   maxResponseSize: 10 * 1024,
-  trafficante: {
+  trafficInspectorOptions: {
     url: '',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/requests'
   },
 }
 
-describe('TrafficanteInterceptor', () => {
-  test('should intercept request/response and send data to trafficante', async (t) => {
+describe('TrafficInterceptor', () => {
+  test('should intercept request/response and send data to traffic inspector', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const response = await request(`${app.host}/dummy`, {
@@ -50,10 +50,10 @@ describe('TrafficanteInterceptor', () => {
     assert.equal(response.headers['x-request-headers-user-agent'], 'test-user-agent')
     assert.equal(response.headers['x-request-headers-content-type'], 'application/json')
 
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
-      if (message.msg === 'trafficante received body') {
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+      if (message.msg === 'traffic inspector received body') {
         assert.equal(message.body, '[/dummy response]')
-        assert.equal(message.headers['x-trafficante-labels'], JSON.stringify(defaultOptions.labels))
+        assert.equal(message.headers['x-labels'], JSON.stringify(defaultOptions.labels))
         const requestData = JSON.parse(message.headers['x-request-data'])
         assert.equal(requestData.url, `http://localhost:${app.port}/dummy`)
         assert.equal(requestData.headers['Content-Type'], 'application/json')
@@ -65,10 +65,10 @@ describe('TrafficanteInterceptor', () => {
       }
       return false
     })
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
-      if (message.msg === 'trafficante received meta') {
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+      if (message.msg === 'traffic inspector received meta') {
         assert.ok(typeof message.body.timestamp === 'number')
-        assert.equal(message.headers['x-trafficante-labels'], JSON.stringify(defaultOptions.labels))
+        assert.equal(message.headers['x-labels'], JSON.stringify(defaultOptions.labels))
         assert.equal(message.body.request.url, `http://localhost:${app.port}/dummy`)
         assert.equal(message.body.response.code, 200)
         assert.equal(message.body.response.bodyHash, '5034874602790624239')
@@ -79,16 +79,16 @@ describe('TrafficanteInterceptor', () => {
     })
   })
 
-  test('should not pass request data to trafficante due to request headers, with concurrency', async (t) => {
+  test('should not pass request data to traffic inspector due to request headers, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const skippingRequestHeaders = {
@@ -112,7 +112,7 @@ describe('TrafficanteInterceptor', () => {
         assert.equal(response.statusCode, 200)
         assert.equal(await response.body.text(), '[/dummy response]')
 
-        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+        await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
           return message.msg === 'skip by request' &&
             Object.keys(message.request?.headers ?? {}).some(requestHeader => {
               return requestHeader.toLowerCase() === header.toLowerCase()
@@ -124,16 +124,16 @@ describe('TrafficanteInterceptor', () => {
     await Promise.all(tasks)
   })
 
-  test('should not pass request data to trafficante due to request domain filter', async (t) => {
+  test('should not pass request data to traffic inspector due to request domain filter', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger,
+      logger: trafficInspector.logger,
       matchingDomains: ['.sub.local', '.plt.local']
     }))
 
@@ -152,22 +152,22 @@ describe('TrafficanteInterceptor', () => {
       assert.equal(response.statusCode, 200)
       assert.equal(await response.body.text(), `[${path} response]`)
 
-      await waitForLogMessage(trafficante.loggerSpy, (message) => {
+      await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
         return message.msg === 'skip by request' && message.request?.headers['Origin'] === origin
       })
     }
   })
 
-  test('should pass request data to trafficante with matching domains', async (t) => {
+  test('should pass request data to traffic inspector with matching domains', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger,
+      logger: trafficInspector.logger,
       matchingDomains: ['.sub.plt', '.plt.local']
     }))
 
@@ -191,8 +191,8 @@ describe('TrafficanteInterceptor', () => {
       assert.equal(response.statusCode, 200)
       assert.equal(await response.body.text(), `[${path} response]`)
 
-      await waitForLogMessage(trafficante.loggerSpy, (message) => {
-        if (message.msg === 'trafficante received body') {
+      await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+        if (message.msg === 'traffic inspector received body') {
           const requestData = JSON.parse(message.headers['x-request-data'])
           return requestData.headers['Origin'] === origin
         }
@@ -203,14 +203,14 @@ describe('TrafficanteInterceptor', () => {
 
   test('should not pass request data to bloom filter but only meta, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const path = '/api/test'
@@ -244,11 +244,11 @@ describe('TrafficanteInterceptor', () => {
 
     for (let i = 0; i < 10; i++) {
       await Promise.all([
-        waitForLogMessage(trafficante.loggerSpy, (message) => {
+        waitForLogMessage(trafficInspector.loggerSpy, (message) => {
           return message.msg === 'skip by bloom filter' && message.request?.headers['x-counter'] === i.toString()
         }),
-        waitForLogMessage(trafficante.loggerSpy, (message) => {
-          if (message.msg === 'trafficante received meta') {
+        waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+          if (message.msg === 'traffic inspector received meta') {
             assert.equal(message.body.request.url, `http://localhost:${app.port}${path}`)
             return true
           }
@@ -258,16 +258,16 @@ describe('TrafficanteInterceptor', () => {
     }
   })
 
-  test('should not pass request data to trafficante due to request method, with concurrency', async (t) => {
+  test('should not pass request data to traffic inspector due to request method, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const skippingRequestMethods = [
@@ -288,7 +288,7 @@ describe('TrafficanteInterceptor', () => {
 
         assert.equal(response.statusCode, 200)
 
-        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+        await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
           return message.msg === 'skip by request' &&
             message.request?.method === method
         })
@@ -298,16 +298,16 @@ describe('TrafficanteInterceptor', () => {
     await Promise.all(tasks)
   })
 
-  test('should pass request data to trafficante on missing or empty request headers', async (t) => {
+  test('should pass request data to traffic inspector on missing or empty request headers', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     {
@@ -332,16 +332,16 @@ describe('TrafficanteInterceptor', () => {
     }
   })
 
-  test('should pass request data to trafficante on cookies that does not contain known auth tokens', async (t) => {
+  test('should pass request data to traffic inspector on cookies that does not contain known auth tokens', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const response = await request(`${app.host}/dummy`, {
@@ -355,21 +355,21 @@ describe('TrafficanteInterceptor', () => {
     assert.equal(response.statusCode, 200)
     assert.equal(await response.body.text(), '[/dummy response]')
 
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
-      return message.msg === 'trafficante received meta'
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+      return message.msg === 'traffic inspector received meta'
     })
   })
 
-  test('should not pass request data to trafficante due to request cookies with known auth tokens, with concurrency', async (t) => {
+  test('should not pass request data to traffic inspector due to request cookies with known auth tokens, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const skippingCookies = [
@@ -396,7 +396,7 @@ describe('TrafficanteInterceptor', () => {
         assert.equal(response.statusCode, 200)
         assert.equal(await response.body.text(), '[/dummy response]')
 
-        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+        await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
           return message.msg === 'skip by request' &&
             message.request?.headers?.['Cookie']?.includes(cookie)
         })
@@ -406,16 +406,16 @@ describe('TrafficanteInterceptor', () => {
     await Promise.all(tasks)
   })
 
-  test('should not pass response data to trafficante due to response status code', async (t) => {
+  test('should not pass response data to traffic inspector due to response status code', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const requests = [
@@ -438,27 +438,27 @@ describe('TrafficanteInterceptor', () => {
         query: req.qs
       })
 
-      assert.ok(!trafficante.loggerSpy.buffer.some(log => {
-        return log.msg === 'trafficante received body'
-      }), 'trafficante must not receive body')
-      assert.ok(!trafficante.loggerSpy.buffer.some(log => {
-        return log.msg === 'trafficante received meta'
-      }), 'trafficante must not receive meta')
+      assert.ok(!trafficInspector.loggerSpy.buffer.some(log => {
+        return log.msg === 'traffic inspector received body'
+      }), 'traffic inspectormust not receive body')
+      assert.ok(!trafficInspector.loggerSpy.buffer.some(log => {
+        return log.msg === 'traffic inspector received meta'
+      }), 'traffic inspectormust not receive meta')
 
-      trafficante.loggerSpy.reset()
+      trafficInspector.loggerSpy.reset()
     }
   })
 
-  test('should not pass response data to trafficante due to response headers, with concurrency', async (t) => {
+  test('should not pass response data to traffic inspector due to response headers, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const skippingResponseHeaders = {
@@ -477,7 +477,7 @@ describe('TrafficanteInterceptor', () => {
           query: { responseHeader: header, responseHeaderValue: skippingResponseHeaders[header] }
         })
 
-        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+        await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
           return message.msg === 'skip by response' &&
             message.response?.headers[header.toLowerCase()] === skippingResponseHeaders[header]
         })
@@ -487,17 +487,17 @@ describe('TrafficanteInterceptor', () => {
     await Promise.all(tasks)
   })
 
-  test('should not pass response data to trafficante due to response size', async (t) => {
+  test('should not pass response data to traffic inspector due to response size', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
       maxResponseSize: 10,
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     await request(`${app.host}/any`, {
@@ -506,21 +506,21 @@ describe('TrafficanteInterceptor', () => {
       query: { responseCode: 200, responseBody: 'something bigger than 10 bytes' }
     })
 
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
       return message.msg === 'skip by response'
     })
   })
 
-  test('should not pass response data to trafficante due to response headers cookies, with concurrency', async (t) => {
+  test('should not pass response data to traffic inspector due to response headers cookies, with concurrency', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const skippingCookies = [
@@ -542,7 +542,7 @@ describe('TrafficanteInterceptor', () => {
           query: { responseHeader: 'Set-Cookie', responseHeaderValue: cookie }
         })
 
-        await waitForLogMessage(trafficante.loggerSpy, (message) => {
+        await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
           return message.msg === 'skip by response' &&
             message.response?.headers?.['set-cookie']?.includes(cookie)
         })
@@ -554,14 +554,14 @@ describe('TrafficanteInterceptor', () => {
 
   test('should handle abort request', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     const abortController = new AbortController()
@@ -579,30 +579,30 @@ describe('TrafficanteInterceptor', () => {
     // @ts-ignore
     assert.rejects(response.body.dump({ signal: abortController.signal }))
 
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
-      return message.msg === 'TrafficanteInterceptor onRequestStart'
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+      return message.msg === 'TrafficInterceptor onRequestStart'
     })
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
-      return message.msg === 'TrafficanteInterceptor onRequestAbort'
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+      return message.msg === 'TrafficInterceptor onRequestAbort'
     })
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
-      return message.msg === 'TrafficanteInterceptor onResponseData'
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+      return message.msg === 'TrafficInterceptor onResponseData'
     })
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
-      return message.msg === 'TrafficanteInterceptor onResponseEnd'
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+      return message.msg === 'TrafficInterceptor onResponseEnd'
     })
   })
 
-  test('should handle error response from trafficante meta', async (t) => {
+  test('should handle error response from traffic inspectormeta', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t, errorMeta: true })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t, errorMeta: true })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     await request(`${app.host}/echo`, {
@@ -610,23 +610,23 @@ describe('TrafficanteInterceptor', () => {
       method: 'GET'
     })
 
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
-      return message.msg === 'TrafficanteInterceptor error sending meta to trafficante' &&
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+      return message.msg === 'TrafficInterceptor error sending meta to traffic inspector' &&
         message.request?.url === `http://localhost:${app.port}/echo` &&
         message.response?.code === 500
     })
   })
 
-  test('should handle error response from trafficante body', async (t) => {
+  test('should handle error response from traffic inspectorbody', async (t) => {
     const app = await createApp({ t })
-    const trafficante = await createTrafficante({ t, errorBody: true })
-    const agent = new Agent().compose(createTrafficanteInterceptor({
+    const trafficInspector = await createTrafficInspector({ t, errorBody: true })
+    const agent = new Agent().compose(createTrafficInterceptor({
       ...structuredClone(defaultOptions),
-      trafficante: {
-        ...defaultOptions.trafficante,
-        url: trafficante.url,
+      trafficInspectorOptions: {
+        ...defaultOptions.trafficInspectorOptions,
+        url: trafficInspector.url,
       },
-      logger: trafficante.logger
+      logger: trafficInspector.logger
     }))
 
     await request(`${app.host}/echo`, {
@@ -634,8 +634,8 @@ describe('TrafficanteInterceptor', () => {
       method: 'GET'
     })
 
-    await waitForLogMessage(trafficante.loggerSpy, (message) => {
-      return message.msg === 'TrafficanteInterceptor error sending body to trafficante' &&
+    await waitForLogMessage(trafficInspector.loggerSpy, (message) => {
+      return message.msg === 'TrafficInterceptor error sending body to traffic inspector' &&
         message.request?.url === `http://localhost:${app.port}/echo` &&
         message.response?.code === 500
     })

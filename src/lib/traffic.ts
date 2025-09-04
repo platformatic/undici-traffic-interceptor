@@ -32,9 +32,9 @@ export const DEFAULT_BLOOM_FILTER_SIZE = 100_000
 export const DEFAULT_BLOOM_FILTER_ERROR_RATE = 0.1
 export const DEFAULT_MAX_RESPONSE_SIZE = 5 * 1024 * 1024 // 5MB
 
-export interface TrafficanteOptions {
+export interface TrafficInterceptorOptions {
   logger?: Logger
-  trafficante: {
+  trafficInspectorOptions: {
     url: string
     pathSendBody: string
     pathSendMeta: string
