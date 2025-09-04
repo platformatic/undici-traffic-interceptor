@@ -47,7 +47,7 @@ export async function createApp ({ t }: { t: TestContext }) {
   }
 }
 
-export async function createIcc ({
+export async function createTrafficInspector ({
   t,
   pathSendBody = '/ingest-body', pathSendMeta = '/requests', errorMeta = false, errorBody = false
 }: { t: TestContext, pathSendBody?: string, pathSendMeta?: string, errorMeta?: boolean, errorBody?: boolean }) {
@@ -66,7 +66,7 @@ export async function createIcc ({
     logger.info({
       body: req.body,
       headers: req.headers
-    }, 'icc received body')
+    }, 'traffic inspectorreceived body')
     res.send('OK')
   })
 
@@ -79,7 +79,7 @@ export async function createIcc ({
     logger.info({
       headers: req.headers,
       body: req.body
-    }, 'icc received meta')
+    }, 'traffic inspectorreceived meta')
     res.send('OK')
   })
 

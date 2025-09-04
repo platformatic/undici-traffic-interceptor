@@ -34,7 +34,7 @@ export const DEFAULT_MAX_RESPONSE_SIZE = 5 * 1024 * 1024 // 5MB
 
 export interface TrafficInterceptorOptions {
   logger?: Logger
-  reqOptions: {
+  trafficInspectorOptions: {
     url: string
     pathSendBody: string
     pathSendMeta: string

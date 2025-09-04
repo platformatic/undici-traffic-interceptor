@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { interceptByDomain } from '../src/lib/traffic.ts'
 
-describe('ICC', () => {
+describe('Traffic inspector', () => {
   test('should be intercepted by matching domains', () => {
     const cases = [
       { domain: '.example.com', matchingDomains: ['.example.com'] },

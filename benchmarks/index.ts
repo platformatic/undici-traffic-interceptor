@@ -4,14 +4,14 @@ import fs from 'node:fs/promises'
 import { Agent, request, Dispatcher } from 'undici'
 import createTrafficInterceptor from '../src/index.ts'
 import { createTargetApp } from './target-app.ts'
-import { createIccApp } from './icc-app.ts'
+import { createTrafficInspector } from './traffic-inspector.ts'
 import { cases } from './cases.ts'
 import { pino } from 'pino'
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 
 const TARGET_PORT = 3000
-const ICC_PORT = 3001
+const TRAFFIC_INSPECTOR_PORT = 3001
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const REQ_PER_CASE = process.env.REQ_PER_CASE ? parseInt(process.env.REQ_PER_CASE) : 10_000
 const CONCURRENCY = process.env.CONCURRENCY ? parseInt(process.env.CONCURRENCY) : 5
@@ -154,9 +154,9 @@ async function makeRequests (agent: Dispatcher, label: string): Promise<Record<s
 }
 
 async function runBenchmark () {
-  console.log('Starting target and icc apps...')
+  console.log('Starting target app and traffic inspector')
   const targetApp = await createTargetApp(TARGET_PORT)
-  const icc = await createIccApp(ICC_PORT)
+  const trafficInspector = await createTrafficInspector(TRAFFIC_INSPECTOR_PORT)
   console.log('Apps started successfully')
 
   // Create agents
@@ -171,8 +171,8 @@ async function runBenchmark () {
       errorRate: 0.01,
     },
     maxResponseSize: 1024 * 1024, // 1MB
-    reqOptions: {
-      url: icc.url,
+    trafficInspectorOptions: {
+      url: trafficInspector.url,
       pathSendBody: '/ingest-body',
       pathSendMeta: '/requests'
     },
@@ -193,13 +193,13 @@ async function runBenchmark () {
   await fs.writeFile(path.join(__dirname, '/result', 'data.json'), JSON.stringify(comparison, null, 2))
   console.log('\nDONE')
 
-  // TODO wait for icc to receive all the meta requests
+  // TODO wait for traffic inspector to receive all the meta requests
 
   // Cleanup with graceful termination
   await interceptorAgent.close()
   await baseAgent.close()
   await targetApp.close()
-  await icc.close()
+  await trafficInspector.close()
 }
 
 // Run benchmark

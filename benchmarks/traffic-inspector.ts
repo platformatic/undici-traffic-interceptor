@@ -1,6 +1,6 @@
 import fastify from 'fastify'
 
-export async function createIccApp (port = 3001) {
+export async function createTrafficInspector (port = 3001) {
   const server = fastify()
 
   const collect = {
@@ -26,7 +26,7 @@ export async function createIccApp (port = 3001) {
   })
 
   await server.listen({ port, host: '0.0.0.0' })
-  console.log(`ICC app listening at http://localhost:${port}`)
+  console.log(`Traffic inspector listening at http://localhost:${port}`)
 
   process.on('exit', async () => {
     // Get collected requests data

@@ -40,8 +40,8 @@ const agent = new Agent().compose(createTrafficInterceptor({
     errorRate: 0.01,
   },
   maxResponseSize: 10 * 1024, // 10KB
-  reqOptions: {
-    url: 'http://icc-server.example.com',
+  trafficInspectorOptions: {
+    url: 'http://traffic-inspector-server.example.com',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/requests'
   }
@@ -93,9 +93,9 @@ interface TrafficInterceptorOptions {
   // Optional logger instance (pino compatible)
   logger?: Logger;
   
-  // ICC server configuration
-  reqOptions: {
-    url: string;              // Base URL of the icc server
+  // Traffic inspector server configuration
+  trafficInspectorOptions: {
+    url: string;              // Base URL of the traffic inspector
     pathSendBody: string;     // Path for sending response bodies
     pathSendMeta: string;     // Path for sending metadata
   };
