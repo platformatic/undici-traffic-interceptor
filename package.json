@@ -1,5 +1,5 @@
 {
-  "name": "@platformatic/undici-trafficante-interceptor",
+  "name": "@platformatic/undici-traffic-interceptor",
   "version": "0.1.1",
   "description": "An Undici interceptor that allows you to inspect and filter HTTP traffic based on request and response data",
   "main": "dist/index.js",
@@ -26,7 +26,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/platformatic/undici-trafficante-interceptor.git"
+    "url": "git+https://github.com/platformatic/undici-traffic-interceptor.git"
   },
   "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
   "dependencies": {

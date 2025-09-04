@@ -5,7 +5,7 @@ import { xxh3 } from '@node-rs/xxhash'
 import {
   interceptRequest,
   interceptResponse,
-  type TrafficanteOptions,
+  type TrafficOptions,
   SKIPPING_REQUEST_HEADERS,
   SKIPPING_RESPONSE_HEADERS,
   INTERCEPT_RESPONSE_STATUS_CODES,
@@ -13,18 +13,18 @@ import {
   DEFAULT_BLOOM_FILTER_SIZE,
   DEFAULT_BLOOM_FILTER_ERROR_RATE,
   DEFAULT_MAX_RESPONSE_SIZE
-} from './trafficante.ts'
+} from './traffic.ts'
 import { BloomFilter } from './bloom-filter.ts'
 import type { Logger } from 'pino'
 import { extractDomain, extractOrigin } from './utils.ts'
 
-const defaultTrafficanteOptions: TrafficanteOptions = {
+const defaultTrafficOptions: TrafficOptions = {
   bloomFilter: {
     size: DEFAULT_BLOOM_FILTER_SIZE,
     errorRate: DEFAULT_BLOOM_FILTER_ERROR_RATE,
   },
   maxResponseSize: DEFAULT_MAX_RESPONSE_SIZE,
-  trafficante: {
+  traffic: {
     url: '',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/requests',
@@ -38,7 +38,7 @@ const defaultTrafficanteOptions: TrafficanteOptions = {
 
 export type InterceptorContext = {
   dispatchOptions: Partial<Dispatcher.DispatchOptions>,
-  options: TrafficanteOptions,
+  options: TrafficOptions,
   hasher: xxh3.Xxh3,
   logger?: Logger,
 
@@ -68,7 +68,7 @@ export type InterceptorContext = {
   sendBody: boolean | undefined
 }
 
-class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
+class TrafficInterceptor implements Dispatcher.DispatchHandler {
   private handler: Dispatcher.DispatchHandler
   private aborted = false
 
@@ -85,7 +85,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
   constructor (
     dispatchOptions: Partial<Dispatcher.DispatchOptions>,
-    options: TrafficanteOptions,
+    options: TrafficOptions,
     bloomFilter: BloomFilter,
     client: Client,
     handler: Dispatcher.DispatchHandler
@@ -123,7 +123,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onRequestAbort (reason: Error) {
-    this.context.logger?.debug({ reason }, 'TrafficanteInterceptor onRequestAbort')
+    this.context.logger?.debug({ reason }, 'TrafficInterceptor onRequestAbort')
 
     if (this.writer && !this.writer.destroyed) {
       this.writer.destroy(reason)
@@ -137,7 +137,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onRequestStart (controller: Dispatcher.DispatchController, context: unknown): void {
-    this.context.logger?.debug('TrafficanteInterceptor onRequestStart')
+    this.context.logger?.debug('TrafficInterceptor onRequestStart')
 
     controller.abort = this.onRequestAbort.bind(this)
 
@@ -175,7 +175,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onResponseStart (controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, statusMessage?: string): void {
-    this.context.logger?.debug('TrafficanteInterceptor onResponseStart')
+    this.context.logger?.debug('TrafficInterceptor onResponseStart')
 
     this.context.response = {
       statusCode,
@@ -196,22 +196,22 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
     }
 
     if (this.context.sendBody) {
-      // Send data to trafficante
-      // Don's send response body to trafficante when request is intercepted due to request headers or bloom filter
+      // Send data to traffic
+      // Don's send response body to traffic when request is intercepted due to request headers or bloom filter
       this.writer = new PassThrough()
       this.bodySendController = new AbortController()
       this.writer.on('error', (error) => {
-        this.context.logger?.error('TrafficanteInterceptor response body passthrough error', error)
+        this.context.logger?.error('TrafficInterceptor response body passthrough error', error)
         this.writer?.destroy(error as Error)
       })
 
       this.send = this.client.request({
-        path: this.context.options.trafficante.pathSendBody,
+        path: this.context.options.traffic.pathSendBody,
         method: 'POST',
         headers: {
           'content-type': this.context.response.headers['content-type'] || 'application/octet-stream',
           'content-length': (this.context.response.headers['content-length'] ?? '0').toString(),
-          'x-trafficante-labels': JSON.stringify(this.context.labels),
+          'x-traffic-labels': JSON.stringify(this.context.labels),
           'x-request-data': JSON.stringify({ url: this.context.request.url, headers: this.context.request.headers }),
           'x-response-data': JSON.stringify({ headers: this.context.response.headers }),
         },
@@ -220,7 +220,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       })
 
       this.send.catch((err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending response body to trafficante #1')
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to traffic #1')
       })
     }
 
@@ -230,7 +230,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   async onResponseData (controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
-    this.context.logger?.debug('TrafficanteInterceptor onResponseData')
+    this.context.logger?.debug('TrafficInterceptor onResponseData')
 
     if (!this.context.interceptResponse || this.aborted) {
       this.handler.onResponseData?.(controller, chunk)
@@ -256,7 +256,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onResponseEnd (controller: Dispatcher.DispatchController, trailers: IncomingHttpHeaders): void {
-    this.context.logger?.debug('TrafficanteInterceptor onResponseEnd')
+    this.context.logger?.debug('TrafficInterceptor onResponseEnd')
 
     if (!this.context.interceptResponse || this.aborted) {
       this.handler.onResponseEnd?.(controller, trailers)
@@ -267,15 +267,15 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       try {
         this.writer.end()
       } catch (err) {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error finalizing response body send')
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error finalizing response body send')
       }
 
       this.send.then((response) => {
         if (response.statusCode > 299) {
-          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficanteInterceptor error sending body to trafficante')
+          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending body to traffic')
         }
       }, (err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error finalizing response body send')
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error finalizing response body send')
       })
     }
 
@@ -283,10 +283,10 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
       this.context.response.hash = this.context.hasher.digest()
 
       // No redaction on headers since if there are auth headers, the request/response will be skipped
-      this.context.logger?.debug({ url: this.context.request.url }, 'send meta to trafficante')
+      this.context.logger?.debug({ url: this.context.request.url }, 'send meta to traffic')
 
       this.client.request({
-        path: this.context.options.trafficante.pathSendMeta,
+        path: this.context.options.traffic.pathSendMeta,
         method: 'POST',
         body: JSON.stringify({
           timestamp: this.context.request.timestamp,
@@ -300,15 +300,15 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
           }
         }),
         headers: {
-          'x-trafficante-labels': JSON.stringify(this.context.labels),
+          'x-traffic-labels': JSON.stringify(this.context.labels),
           'content-type': 'application/json',
         }
       }).then((response) => {
         if (response.statusCode > 299) {
-          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficanteInterceptor error sending meta to trafficante')
+          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending meta to traffic')
         }
       }, (err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending meta to trafficante')
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending meta to traffic')
       })
     }
 
@@ -316,13 +316,13 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onRequestUpgrade (controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, socket: Duplex): void {
-    this.context.logger?.debug('TrafficanteInterceptor onRequestUpgrade')
+    this.context.logger?.debug('TrafficInterceptor onRequestUpgrade')
 
     this.handler.onRequestUpgrade?.(controller, statusCode, headers, socket)
   }
 
   async onResponseError (controller: Dispatcher.DispatchController, err: Error): Promise<void> {
-    this.context.logger?.error({ err }, 'TrafficanteInterceptor onResponseError')
+    this.context.logger?.error({ err }, 'TrafficInterceptor onResponseError')
 
     // Cleanup streams and abort pending requests
     if (this.writer && !this.writer.destroyed) {
@@ -331,7 +331,7 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
 
     if (this.send) {
       this.send.catch((err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficanteInterceptor error sending response body to trafficante #2')
+        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to traffic #2')
         if (this.writer && !this.writer.destroyed) {
           this.writer.destroy(err)
         }
@@ -342,56 +342,56 @@ class TrafficanteInterceptor implements Dispatcher.DispatchHandler {
   }
 }
 
-export function createTrafficanteInterceptor (options: TrafficanteOptions = defaultTrafficanteOptions): Dispatcher.DispatchInterceptor {
+export function createTrafficInterceptor (options: TrafficOptions = defaultTrafficOptions): Dispatcher.DispatchInterceptor {
   const { logger, interceptResponseStatusCodes, ...optionsRest } = options
-  const validatedOptions: TrafficanteOptions = structuredClone(optionsRest)
+  const validatedOptions: TrafficOptions = structuredClone(optionsRest)
 
   // Validate options
   if (!validatedOptions.bloomFilter || typeof validatedOptions.bloomFilter.size !== 'number' || validatedOptions.bloomFilter.size <= 0) {
-    throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_BLOOM_FILTER_SIZE')
+    throw new Error('TRAFFIC_INTERCEPTOR_INVALID_BLOOM_FILTER_SIZE')
   }
   if (!options.bloomFilter || typeof options.bloomFilter.errorRate !== 'number' || options.bloomFilter.errorRate <= 0 || options.bloomFilter.errorRate >= 1) {
-    throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_BLOOM_FILTER_ERROR_RATE')
+    throw new Error('TRAFFIC_INTERCEPTOR_INVALID_BLOOM_FILTER_ERROR_RATE')
   }
   if (validatedOptions.maxResponseSize === undefined) {
-    validatedOptions.maxResponseSize = defaultTrafficanteOptions.maxResponseSize
+    validatedOptions.maxResponseSize = defaultTrafficOptions.maxResponseSize
   } else if (typeof validatedOptions.maxResponseSize !== 'number' || validatedOptions.maxResponseSize <= 0) {
-    throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_MAX_RESPONSE_SIZE')
+    throw new Error('TRAFFIC_INTERCEPTOR_INVALID_MAX_RESPONSE_SIZE')
   }
-  if (!validatedOptions.trafficante || typeof validatedOptions.trafficante.url !== 'string' || validatedOptions.trafficante.url.length === 0) {
-    throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_TRAFFICANTE_URL')
+  if (!validatedOptions.traffic || typeof validatedOptions.traffic.url !== 'string' || validatedOptions.traffic.url.length === 0) {
+    throw new Error('TRAFFIC_INTERCEPTOR_INVALID_TRAFFIC_URL')
   }
   if (!validatedOptions.labels) {
-    validatedOptions.labels = defaultTrafficanteOptions.labels
+    validatedOptions.labels = defaultTrafficOptions.labels
   }
   if (validatedOptions.matchingDomains) {
     if (!Array.isArray(validatedOptions.matchingDomains) || validatedOptions.matchingDomains.length === 0) {
-      throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_SKIPPING_DOMAINS')
+      throw new Error('TRAFFIC_INTERCEPTOR_INVALID_SKIPPING_DOMAINS')
     }
 
     for (const skippingDomain of validatedOptions.matchingDomains) {
       if (typeof skippingDomain !== 'string' || skippingDomain.length === 0) {
-        throw new Error('TRAFFICANTE_INTERCEPTOR_INVALID_SKIPPING_DOMAINS')
+        throw new Error('TRAFFIC_INTERCEPTOR_INVALID_SKIPPING_DOMAINS')
       }
     }
   }
 
-  validatedOptions.skippingRequestHeaders = optionsRest.skippingRequestHeaders ?? defaultTrafficanteOptions.skippingRequestHeaders
-  validatedOptions.skippingResponseHeaders = optionsRest.skippingResponseHeaders ?? defaultTrafficanteOptions.skippingResponseHeaders
-  validatedOptions.interceptResponseStatusCodes = interceptResponseStatusCodes ?? defaultTrafficanteOptions.interceptResponseStatusCodes
-  validatedOptions.skippingCookieSessionIds = optionsRest.skippingCookieSessionIds ?? defaultTrafficanteOptions.skippingCookieSessionIds
+  validatedOptions.skippingRequestHeaders = optionsRest.skippingRequestHeaders ?? defaultTrafficOptions.skippingRequestHeaders
+  validatedOptions.skippingResponseHeaders = optionsRest.skippingResponseHeaders ?? defaultTrafficOptions.skippingResponseHeaders
+  validatedOptions.interceptResponseStatusCodes = interceptResponseStatusCodes ?? defaultTrafficOptions.interceptResponseStatusCodes
+  validatedOptions.skippingCookieSessionIds = optionsRest.skippingCookieSessionIds ?? defaultTrafficOptions.skippingCookieSessionIds
 
   validatedOptions.logger = logger
 
   const bloomFilter = new BloomFilter(validatedOptions.bloomFilter.size, validatedOptions.bloomFilter.errorRate)
-  const client = new Client(validatedOptions.trafficante.url)
+  const client = new Client(validatedOptions.traffic.url)
 
-  return function trafficanteInterceptor (dispatch: Dispatcher['dispatch']): Dispatcher['dispatch'] {
+  return function trafficInterceptor (dispatch: Dispatcher['dispatch']): Dispatcher['dispatch'] {
     return function InterceptedDispatch (
       dispatchOptions: Dispatcher.DispatchOptions,
       handler: Dispatcher.DispatchHandler
     ): boolean {
-      return dispatch(dispatchOptions, new TrafficanteInterceptor(dispatchOptions, validatedOptions, bloomFilter, client, handler))
+      return dispatch(dispatchOptions, new TrafficInterceptor(dispatchOptions, validatedOptions, bloomFilter, client, handler))
     }
   }
 }

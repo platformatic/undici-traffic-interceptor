@@ -1,4 +1,4 @@
-# @platformatic/undici-trafficante-interceptor
+# @platformatic/undici-traffic-interceptor
 
 An [Undici](https://github.com/nodejs/undici) interceptor that allows you to inspect and filter HTTP traffic based on request and response data. It uses a Bloom filter to efficiently track and deduplicate requests.
 
@@ -18,7 +18,7 @@ An [Undici](https://github.com/nodejs/undici) interceptor that allows you to ins
 ## Installation
 
 ```bash
-npm install @platformatic/undici-trafficante-interceptor
+npm install @platformatic/undici-traffic-interceptor
 ```
 
 ## Usage
@@ -27,10 +27,10 @@ Here's a basic example of how to use the interceptor:
 
 ```typescript
 import { Agent, request } from 'undici'
-import createTrafficanteInterceptor from '@platformatic/undici-trafficante-interceptor'
+import createTrafficInterceptor from '@platformatic/undici-traffic-interceptor'
 
 // Create an agent with the interceptor
-const agent = new Agent().compose(createTrafficanteInterceptor({
+const agent = new Agent().compose(createTrafficInterceptor({
   labels: {
     applicationId: 'app-1',
     taxonomyId: 'tax-1',
@@ -40,8 +40,8 @@ const agent = new Agent().compose(createTrafficanteInterceptor({
     errorRate: 0.01,
   },
   maxResponseSize: 10 * 1024, // 10KB
-  trafficante: {
-    url: 'http://trafficante-server.example.com',
+  traffic: {
+    url: 'http://traffic-server.example.com',
     pathSendBody: '/ingest-body',
     pathSendMeta: '/requests'
   }
@@ -62,7 +62,7 @@ const response = await request('https://api.example.com/data', {
 You can customize the filtering behavior by providing your own interceptor functions:
 
 ```typescript
-const agent = new Agent().compose(createTrafficanteInterceptor({
+const agent = new Agent().compose(createTrafficInterceptor({
   // ... other options ...
   
   // Custom request interceptor
@@ -89,13 +89,13 @@ const agent = new Agent().compose(createTrafficanteInterceptor({
 The interceptor accepts the following configuration options:
 
 ```typescript
-interface TrafficanteOptions {
+interface TrafficOptions {
   // Optional logger instance (pino compatible)
   logger?: Logger;
   
-  // Trafficante server configuration
-  trafficante: {
-    url: string;              // Base URL of the trafficante server
+  // Traffic server configuration
+  traffic: {
+    url: string;              // Base URL of the traffic server
     pathSendBody: string;     // Path for sending response bodies
     pathSendMeta: string;     // Path for sending metadata
   };
@@ -140,7 +140,7 @@ Default is empty, which means all domains will be intercepted.
 Examples:
 
 ```typescript
-const agent = new Agent().compose(createTrafficanteInterceptor({
+const agent = new Agent().compose(createTrafficInterceptor({
   // ...
   matchingDomains: ['.sub.local', '.plt.local']
 }))
@@ -176,7 +176,7 @@ By default, the interceptor will skip:
 
 ## API Reference
 
-### createTrafficanteInterceptor(options: TrafficanteOptions)
+### createTrafficInterceptor(options: TrafficOptions)
 
 Creates a new Undici interceptor with the specified options. Returns a function that can be used with Undici's `compose()` method.
 
