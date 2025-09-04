@@ -210,7 +210,7 @@ server.post('/requests/hash', {
   }
 })
 
-app.post('/requests/body', {
+server.post('/requests/body', {
   schema: {
     headers: {
       type: 'object',
@@ -227,7 +227,8 @@ app.post('/requests/body', {
     // The body contains the actual response body
   }
 })
-server.listen({ port, host: '0.0.0.0' })
+
+server.listen({ port: 3000, host: '0.0.0.0' })
 ```
 
 ### Default Skip Conditions
