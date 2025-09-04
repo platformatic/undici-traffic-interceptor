@@ -1,6 +1,6 @@
 # undici-traffic-interceptor
 
-An [Undici](https://github.com/nodejs/undici) interceptor that allows you to inspect and filter HTTP traffic based on request and response data. It uses a Bloom filter to efficiently track and deduplicate requests.
+An [Undici](https://github.com/nodejs/undici) interceptor that allows you to inspect and filter HTTP traffic based on request and response data. It uses a Bloom filter to efficiently track and deduplicate requests. Requests that match the specified criteria are sent to a configured traffic inspector server.
 
 ## Features
 
@@ -158,6 +158,77 @@ request('https://plt.local/api', { headers: { Origin: 'https://platformatic.dev'
 
 ```
 
+### Traffic Interception Configurations
+
+Traffic Interceptor is an HTTP server that receives intercepted requests and responses. You need to provide its URL and the paths for sending request metadata and response bodies.
+
+Traffic Inspector should expose two endpoints:
+1. `POST /requests/hash` - Receives request metadata and response hashes.
+2. `POST /requests/body` - Receives the actual response body along with metadata.
+
+Example of the Traffic Inspector server:
+
+```typescript
+import fastify from 'fastify'
+
+const server = fastify()
+
+server.post('/requests/hash', {
+  schema: {
+    headers: {
+      type: 'object',
+      properties: {
+        'x-labels': { type: 'string' }
+      },
+      required: ['x-labels']
+    },
+    body: {
+      type: 'object',
+      properties: {
+        timestamp: { type: 'number' },
+        request: {
+          type: 'object',
+          properties: {
+            url: { type: 'string' }
+          },
+          required: ['url']
+        },
+        response: {
+          type: 'object',
+          properties: {
+            bodySize: { type: 'number' },
+            bodyHash: { type: 'string' }
+          },
+          required: ['bodySize', 'bodyHash']
+        }
+      },
+      required: ['timestamp', 'request', 'response']
+    }
+  },
+  handler: async (req) => {
+    // Analyze the request body and headers
+  }
+})
+
+app.post('/requests/body', {
+  schema: {
+    headers: {
+      type: 'object',
+      properties: {
+        'x-labels': { type: 'string' },
+        'x-request-data': { type: 'string' },
+        'x-response-data': { type: 'string' }
+      },
+      required: ['x-trafficante-labels', 'x-request-data', 'x-response-data']
+    }
+  },
+  handler: async (req) => {
+    // Analyze the request and response metadata
+    // The body contains the actual response body
+  }
+})
+server.listen({ port, host: '0.0.0.0' })
+```
 
 ### Default Skip Conditions
 
