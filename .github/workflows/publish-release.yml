@@ -31,6 +31,8 @@ jobs:
       - name: Change version number
         run: |
           npm version ${{ inputs.version }} --no-git-tag-version
+      - name: Build
+        run: npm run build
       - name: GIT commit and push all changed files
         run: |
           git config --global user.name "mcollina"
