@@ -18,6 +18,22 @@ import { BloomFilter } from './bloom-filter.ts'
 import type { Logger } from 'pino'
 import { extractDomain, extractOrigin } from './utils.ts'
 
+// No-op logger implementation
+const abstractLogging: Logger = {
+  debug: () => {},
+  error: () => {},
+  fatal: () => {},
+  info: () => {},
+  trace: () => {},
+  warn: () => {},
+  silent: () => abstractLogging,
+  child: () => abstractLogging,
+  level: 'silent',
+  levels: { labels: {}, values: {} },
+  isLevelEnabled: () => false,
+  version: ''
+} as any
+
 const defaultTrafficInterceptorOptions: TrafficInterceptorOptions = {
   bloomFilter: {
     size: DEFAULT_BLOOM_FILTER_SIZE,
@@ -40,7 +56,7 @@ export type InterceptorContext = {
   dispatchOptions: Partial<Dispatcher.DispatchOptions>,
   options: TrafficInterceptorOptions,
   hasher: xxh3.Xxh3,
-  logger?: Logger,
+  logger: Logger,
 
   // request
   request: {
@@ -99,7 +115,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
       dispatchOptions,
       options,
       hasher: xxh3.Xxh3.withSeed(),
-      logger: options.logger,
+      logger: options.logger || abstractLogging,
       labels: options.labels ?? {},
 
       request: {
@@ -123,7 +139,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onRequestAbort (reason: Error) {
-    this.context.logger?.debug({ reason }, 'TrafficInterceptor onRequestAbort')
+    this.context.logger.debug({ reason }, 'TrafficInterceptor onRequestAbort')
 
     if (this.writer && !this.writer.destroyed) {
       this.writer.destroy(reason)
@@ -137,7 +153,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onRequestStart (controller: Dispatcher.DispatchController, context: unknown): void {
-    this.context.logger?.debug('TrafficInterceptor onRequestStart')
+    this.context.logger.debug('TrafficInterceptor onRequestStart')
 
     controller.abort = this.onRequestAbort.bind(this)
 
@@ -154,7 +170,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
     if (!this.context.interceptRequest) {
       this.context.sendBody = false
       this.context.sendMeta = false
-      this.context.logger?.debug({ request: this.context.request }, 'skip by request')
+      this.context.logger.debug({ request: this.context.request }, 'skip by request')
       this.handler.onRequestStart?.(controller, context)
       return
     }
@@ -162,7 +178,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
     // will send only meta and no body if bloom filter is hit
     this.context.request.hash = this.context.hasher.update(this.context.request.url).digest()
     if (this.bloomFilter.has(this.context.request.hash)) {
-      this.context.logger?.debug({ request: this.context.request }, 'skip by bloom filter')
+      this.context.logger.debug({ request: this.context.request }, 'skip by bloom filter')
       this.context.sendMeta = true
       this.context.sendBody = false
     } else {
@@ -175,7 +191,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onResponseStart (controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, statusMessage?: string): void {
-    this.context.logger?.debug('TrafficInterceptor onResponseStart')
+    this.context.logger.debug('TrafficInterceptor onResponseStart')
 
     this.context.response = {
       statusCode,
@@ -190,7 +206,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
     this.context.interceptResponse = this.interceptResponse(this.context)
 
     if (!this.context.interceptResponse) {
-      this.context.logger?.debug({ response: this.context.response }, 'skip by response')
+      this.context.logger.debug({ response: this.context.response }, 'skip by response')
       this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage)
       return
     }
@@ -201,7 +217,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
       this.writer = new PassThrough()
       this.bodySendController = new AbortController()
       this.writer.on('error', (error) => {
-        this.context.logger?.error({ err: error }, 'TrafficInterceptor response body passthrough error')
+        this.context.logger.error({ err: error }, 'TrafficInterceptor response body passthrough error')
         this.writer?.destroy(error as Error)
       })
 
@@ -220,7 +236,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
       })
 
       this.send.catch((err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to traffic inspector #1')
+        this.context.logger.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to traffic inspector #1')
       })
     }
 
@@ -230,7 +246,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
   }
 
   async onResponseData (controller: Dispatcher.DispatchController, chunk: Buffer): Promise<void> {
-    this.context.logger?.debug('TrafficInterceptor onResponseData')
+    this.context.logger.debug('TrafficInterceptor onResponseData')
 
     if (!this.context.interceptResponse || this.aborted) {
       this.handler.onResponseData?.(controller, chunk)
@@ -247,7 +263,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
           await new Promise(resolve => this.writer?.once('drain', resolve))
         }
       } catch (err) {
-        this.context.logger?.error({ err }, 'Error writing to response body stream')
+        this.context.logger.error({ err }, 'Error writing to response body stream')
         this.writer?.destroy(err as Error)
       }
     }
@@ -256,7 +272,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onResponseEnd (controller: Dispatcher.DispatchController, trailers: IncomingHttpHeaders): void {
-    this.context.logger?.debug('TrafficInterceptor onResponseEnd')
+    this.context.logger.debug('TrafficInterceptor onResponseEnd')
 
     if (!this.context.interceptResponse || this.aborted) {
       this.handler.onResponseEnd?.(controller, trailers)
@@ -267,15 +283,15 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
       try {
         this.writer.end()
       } catch (err) {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error finalizing response body send')
+        this.context.logger.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error finalizing response body send')
       }
 
       this.send.then((response) => {
         if (response.statusCode > 299) {
-          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending body to traffic inspector')
+          this.context.logger.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending body to traffic inspector')
         }
       }, (err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error finalizing response body send')
+        this.context.logger.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error finalizing response body send')
       })
     }
 
@@ -283,7 +299,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
       this.context.response.hash = this.context.hasher.digest()
 
       // No redaction on headers since if there are auth headers, the request/response will be skipped
-      this.context.logger?.debug({ url: this.context.request.url }, 'send meta to traffic inspector')
+      this.context.logger.debug({ url: this.context.request.url }, 'send meta to traffic inspector')
 
       this.client.request({
         path: this.context.options.trafficInspectorOptions.pathSendMeta,
@@ -305,10 +321,10 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
         }
       }).then((response) => {
         if (response.statusCode > 299) {
-          this.context.logger?.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending meta to traffic inspector')
+          this.context.logger.error({ request: { url: this.context.request.url }, response: { code: response.statusCode } }, 'TrafficInterceptor error sending meta to traffic inspector')
         }
       }, (err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending meta to traffic inspector')
+        this.context.logger.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending meta to traffic inspector')
       })
     }
 
@@ -316,13 +332,13 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
   }
 
   onRequestUpgrade (controller: Dispatcher.DispatchController, statusCode: number, headers: IncomingHttpHeaders, socket: Duplex): void {
-    this.context.logger?.debug('TrafficInterceptor onRequestUpgrade')
+    this.context.logger.debug('TrafficInterceptor onRequestUpgrade')
 
     this.handler.onRequestUpgrade?.(controller, statusCode, headers, socket)
   }
 
   async onResponseError (controller: Dispatcher.DispatchController, err: Error): Promise<void> {
-    this.context.logger?.error({ err }, 'TrafficInterceptor onResponseError')
+    this.context.logger.error({ err }, 'TrafficInterceptor onResponseError')
 
     // Cleanup streams and abort pending requests
     if (this.writer && !this.writer.destroyed) {
@@ -331,7 +347,7 @@ class TrafficInterceptor implements Dispatcher.DispatchHandler {
 
     if (this.send) {
       this.send.catch((err) => {
-        this.context.logger?.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to traffic inspector #2')
+        this.context.logger.error({ err, requestUrl: this.context.request.url }, 'TrafficInterceptor error sending response body to traffic inspector #2')
         if (this.writer && !this.writer.destroyed) {
           this.writer.destroy(err)
         }
